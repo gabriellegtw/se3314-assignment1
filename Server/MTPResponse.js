@@ -22,6 +22,8 @@ module.exports = {
     this.payload = data;
     this.payloadSize = data.length;
     this.responseHeader = Buffer.alloc(HEADER_SIZE);
+    this.buildHeader();
+    return;
   },
   // Build the 12-byte header
   buildHeader: function() {

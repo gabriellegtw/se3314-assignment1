@@ -109,6 +109,10 @@ let expectedPayloadSize = 0;
 
 client.on('data', (data) => {
     console.log(`Received ${data.length} bytes from server`);
+
+    console.log('First 20 bytes (hex):', data.slice(0,20).toString('hex'));
+    console.log('First 20 bytes (ascii):', data.slice(0,20).toString('ascii'));
+    
     responseBuffer = Buffer.concat([responseBuffer, data]);
     
     // Process all complete packets in buffer

@@ -4,7 +4,7 @@ const HEADER_SIZE = 12;
 module.exports = {
   // You may need to add some statements here
   version: 11,
-  requestType: 1,
+  requestType: 0,
   timestamp: 0,
   mediaType: 1,
   filename: '',
