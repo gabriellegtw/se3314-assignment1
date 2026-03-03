@@ -123,7 +123,6 @@ function getRequestTypeName(type) {
     return types[type] || 'Unknown';
 }
 
-// ============= QUERY HANDLING =============
 function handleQuery(sock, filename) {
     const imagePath = path.join(__dirname, 'images', filename);
     

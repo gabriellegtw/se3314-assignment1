@@ -1,7 +1,6 @@
 // Some code need to be added here, that are common for the module
 let seq_num = 0;
-let timer = Date.now()
-
+let timer = Math.floor(Date.now() / 1000);
 
 module.exports = {
     init: function () {

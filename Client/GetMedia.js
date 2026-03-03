@@ -46,7 +46,7 @@ function getMediaType(filename) {
         'bmp': 1, 'jpg': 2, 'jpeg': 2, 'tiff': 3, 'gif': 4,
         'png': 5, 'avi': 6, 'mp4': 7, 'mov': 8, 'raw': 15
     };
-    return types[ext] || 1; // Default to BMP if unknown
+    return types[ext] || 1;
 }
 
 // Main execution
@@ -110,9 +110,6 @@ let expectedPayloadSize = 0;
 client.on('data', (data) => {
     console.log(`Received ${data.length} bytes from server`);
 
-    console.log('First 20 bytes (hex):', data.slice(0,20).toString('hex'));
-    console.log('First 20 bytes (ascii):', data.slice(0,20).toString('ascii'));
-    
     responseBuffer = Buffer.concat([responseBuffer, data]);
     
     // Process all complete packets in buffer
@@ -157,6 +154,8 @@ client.on('data', (data) => {
                 // Save file data if this is the last packet
                 if (responseHeader.lastFlag) {
                     saveAndOpenFile(fileData, fullFilename);
+                    client.end();    
+                    console.log('Closing connection...');
                 } else {
                     // More packets coming, reset for next packet
                     console.log('More packets expected...');
@@ -191,8 +190,6 @@ setTimeout(() => {
         client.end();
     }
 }, 10000);
-
-// ============= HELPER FUNCTIONS =============
 
 function parseResponseHeader(buffer) {
     if (buffer.length < 12) return null;
