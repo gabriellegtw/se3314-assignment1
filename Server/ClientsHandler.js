@@ -1,5 +1,7 @@
 var MTPpacket = require("./MTPResponse"),
 singleton = require("./Singleton");
+var path = require('path');
+var fs = require('fs');
 
 // You need to add some statements here
 // Since header is 12 bytes
@@ -74,11 +76,26 @@ function processClientData(sock, buffer) {
         const filenameBuffer = buffer.slice(HEADER_SIZE, HEADER_SIZE + filenameSize);
         const filename = bytesToString(filenameBuffer);
         
+        let fullFilename = filename;
+        switch(mediaType) {
+            case 1: fullFilename += ".bmp"; break;
+            case 2: fullFilename += ".jpg"; break;
+            case 3: fullFilename += ".tiff"; break;
+            case 4: fullFilename += ".gif"; break;
+            case 5: fullFilename += ".png"; break;
+            case 6: fullFilename += ".avi"; break;
+            case 7: fullFilename += ".mp4"; break;
+            case 8: fullFilename += ".mov"; break;
+            case 15: fullFilename += ".raw"; break;
+            default: fullFilename += ".bin"; 
+                console.log(`Unknown media type: ${mediaType}`);
+        }
+
         // Log the request (as required by assignment)
         console.log(`\nClient-${sock.remotePort} requests:`);
         console.log(`- MTP version: ${version}`);
         console.log(`- Request type: ${getRequestTypeName(requestType)}`);
-        console.log(`- Media file name: ${filename}`);
+        console.log(`- Media file name: ${fullFilename}`);
         
         // Print packet in bits format (required)
         console.log('MTP packet received:');
@@ -91,7 +108,7 @@ function processClientData(sock, buffer) {
         // Handle based on request type
         // For now, only handle Query (type 1)
         if (requestType === 1) {
-            handleQuery(sock, filename);
+            handleQuery(sock, fullFilename);
         } else {
             console.log(`Ignoring request type ${requestType} - only Query supported`);
             // Optionally send error response
@@ -108,16 +125,18 @@ function getRequestTypeName(type) {
 
 // ============= QUERY HANDLING =============
 function handleQuery(sock, filename) {
-    console.log(`Handling Query for file: ${filename}`);
+    const imagePath = path.join(__dirname, 'images', filename);
+    
+    console.log(`Handling Query for file: ${imagePath}`);
     
     // Check if file exists
-    fs.access(filename, fs.constants.F_OK, (err) => {
+    fs.access(imagePath, fs.constants.F_OK, (err) => {
         if (err) {
             console.log(`File ${filename} not found`);
             sendNotFound(sock);
         } else {
             console.log(`File ${filename} found, sending...`);
-            sendFile(sock, filename);
+            sendFile(sock, imagePath, filename);
         }
     });
 }
@@ -127,7 +146,7 @@ function sendNotFound(sock) {
     let seqNum = singleton.getSequenceNumber();
     
     // Create "Not Found" response (type=2) with empty payload
-    MTPpacket.init(11, 2, seqNum, 0, 1, Buffer.alloc(0));
+    MTPpacket.init(2, seqNum, 0, 1, Buffer.alloc(0));
     
     // Get the complete packet and send
     let packet = MTPpacket.getBytePacket();
@@ -139,9 +158,9 @@ function sendNotFound(sock) {
     // MTPpacket.printPacket();
 }
 
-function sendFile(sock, filename) {
+function sendFile(sock, filePath, filename) {
     // Read the file
-    fs.readFile(filename, (err, data) => {
+    fs.readFile(filePath, (err, data) => {
         if (err) {
             console.log(`Error reading file: ${err.message}`);
             sendNotFound(sock);
@@ -155,7 +174,7 @@ function sendFile(sock, filename) {
         let seqNum = singleton.getSequenceNumber();
         
         // Create "Found" response (type=1) with file data as payload
-        MTPpacket.init(11, 1, seqNum, 0, 1, data);
+        MTPpacket.init(1, seqNum, 0, 1, data);
         
         // Get packet and send
         let packet = MTPpacket.getBytePacket();

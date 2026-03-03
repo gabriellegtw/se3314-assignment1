@@ -4,6 +4,6 @@
   "description": "",
   "main": "../Client/GetMedia.js",
   "dependencies": {
-    "open": "^7.4.0"
+    "open": "^7.4.2"
   }
 }
