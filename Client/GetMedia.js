@@ -5,6 +5,8 @@ let MTPpacket = require("./MTPRequest"),// uncomment this line after you run npm
 
 singleton = require("./Singleton");
 let keyParts = []; 
+let responseTimeout = null;
+let lastAckSent = null;
 
 // call as GetImage -s <serverIP>:<port> -q <image name> -v <version>
 
@@ -99,6 +101,7 @@ printPacketBit(requestPacket);
 
 // Connect to server
 const client = net.createConnection(parseInt(port), host, () => {
+    resetTimeout();
     console.log('Connected to server, sending request...');
     client.write(requestPacket);
 });
@@ -111,6 +114,7 @@ let packetsReceived = 0;
 let expectedPayloadSize = 0;
 
 client.on('data', (data) => {
+    resetTimeout();
     console.log(`Received ${data.length} bytes from server`);
 
     responseBuffer = Buffer.concat([responseBuffer, data]);
@@ -155,6 +159,7 @@ client.on('data', (data) => {
                 console.log(`Complete packet ${packetsReceived} received (${fileData.length} bytes payload)`);
                 const wasLastPacket = responseHeader.lastFlag;
                 handleResponse(responseHeader, fileData);
+                resetTimeout();
                 
                 responseHeader = null;
                 packetsReceived++;
@@ -179,12 +184,14 @@ client.on('error', (err) => {
 });
 
 // Timeout after 10 seconds
-setTimeout(() => {
-    if (!responseHeader && fileData.length === 0) {
-        console.log('\nTimeout: No response received');
-        client.end();
-    }
-}, 10000);
+// setTimeout(() => {
+//     console.log('Response Header: ', responseHeader);
+//     console.log('fileDatalength: ', fileData.length);
+//     if (!responseHeader && fileData.length === 0) {
+//         console.log('\nTimeout: No response received');
+//         client.end();
+//     }
+// }, 10000);
 
 function parseResponseHeader(buffer) {
     if (buffer.length < 12) return null;
@@ -231,9 +238,24 @@ function handleResponse(header, payload) {
             const keyPart = keyChar1 + keyChar2;
             
             console.log(`\n🔑 Received key part ${keyInfo.partNum}: "${keyPart}"`);
+
+            if (keyParts[keyInfo.partNum - 1]) {
+                console.log(`ACK Received`);
+                return;
+            }
             
             // Store the key part
             keyParts[keyInfo.partNum - 1] = keyPart;
+
+            if (keyParts[0] && keyParts[1] && keyParts[2]) {
+                console.log('\n🎉 All 3 key parts collected!');
+                console.log('Full key:', keyParts.join(''));
+                console.log('Automatically sending COMPLETE request...');
+                
+                // Send COMPLETE request (type=4)
+                sendRequest(4, "", 0);
+                return;
+            }
             
             // === AUTOMATICALLY SEND ACK ===
             sendAck(header.reserved);
@@ -289,6 +311,14 @@ function sendAck(reservedValue) {
     client.write(ackPacket);
     console.log('✅ ACK sent');
     console.log('========================\n');
+
+    // Remember that we sent this ACK
+    lastAckSent = reservedValue;
+    
+    // Clear after 1 second (in case we need to send a different one)
+    setTimeout(() => {
+        lastAckSent = null;
+    }, 1000);
 }
 
 // Helper to decode reserved field
@@ -408,11 +438,36 @@ function startInteractiveMode() {
 // Helper function to send requests
 function sendRequest(type, filename, mediaTypeValue) {
     const timestamp = singleton.getTimestamp();
-    
+
+    resetTimeout();
     // Re-initialize MTPpacket with new request
     MTPpacket.init(type, timestamp, mediaTypeValue, filename);
     const packet = MTPpacket.getBytePacket();
     
     console.log('Sending request...');
     client.write(packet);
+}
+
+function resetTimeout() {
+    // Clear existing timeout
+    if (responseTimeout) {
+        clearTimeout(responseTimeout);
+        responseTimeout = null;
+    }
+    
+    // Set new timeout
+    responseTimeout = setTimeout(() => {
+        console.log('\n⏰ TIMEOUT CHECK:');
+        console.log('   Response Header: ', responseHeader);
+        console.log('   fileData length: ', fileData.length);
+        console.log('   packetsReceived: ', packetsReceived);
+        
+        // Only timeout if we're not in interactive mode waiting for input
+        if (!responseHeader && fileData.length === 0 && packetsReceived === 0) {
+            console.log('\n❌ Timeout: No response received');
+            client.end();
+        } else {
+            console.log('   ✅ Not timing out - activity detected');
+        }
+    }, 30000); // 30 seconds
 }

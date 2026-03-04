@@ -233,13 +233,104 @@ function handleSecretFileRequest(sock, filename, clientSession) {
     
     // ===== All checks passed - send file with key part =====
     console.log(`   ✅ Correct file! Sending with key part ${session.nextFileIndex + 1}`);
+    session.awaitingAck = true;
     sendFileWithKeyPart(sock, filename, clientSession);
 }
+
+// function sendFileWithKeyPart(sock, filename, clientSession) {
+//     const session = clientSession.secretSession;
+//     const fileIndex = session.nextFileIndex;
+//     const partNum = fileIndex + 1;
+    
+//     // 🔴 GUARD 1: Check if this file should be sent now
+//     if (filename !== session.expectedFiles[fileIndex]) {
+//         console.log(`   ⚠️ Not sending ${filename} - not the current expected file`);
+//         return;
+//     }
+    
+//     // 🔴 GUARD 2: Check if this file was already sent
+//     if (session.fileSent[fileIndex]) {
+//         console.log(`   ⚠️ File ${filename} already sent, ignoring duplicate call`);
+//         return;
+//     }
+    
+//     // Split the key and get the right part
+//     const keyParts = secretHandler.splitKey(session.variant.key);
+//     const keyPart = keyParts[fileIndex];
+    
+//     console.log(`   🔑 Sending key part ${partNum}/3: "${keyPart}"`);
+    
+//     // Encode in reserved field
+//     const reserved = secretHandler.encodeKeyPart(
+//         keyPart,
+//         partNum,
+//         session.startWindow
+//     );
+    
+//     console.log(`   📦 Reserved field: 0x${reserved.toString(16)}`);
+    
+//     const filePath = path.join(__dirname, 'images', filename);
+    
+//     fs.readFile(filePath, (err, data) => {
+//         if (err) {
+//             console.log(`   ❌ Error reading file: ${err.message}`);
+//             sendNotFound(sock);
+//             return;
+//         }
+        
+//         let seqNum = singleton.getSequenceNumber();
+        
+//         MTPpacket.init(1, seqNum, reserved, 1, data);
+//         var packet = MTPpacket.getBytePacket();
+//         sock.write(packet);
+        
+//         console.log(`   📤 Packet reserved bytes: ${packet[4].toString(16)} ${packet[5].toString(16)} ${packet[6].toString(16)} ${packet[7].toString(16)}`);
+//         console.log(`   ✅ Sent ${filename} (${data.length} bytes) with key part ${partNum}`);
+        
+//         // 🔴 MARK THIS FILE AS SENT
+//         session.fileSent[fileIndex] = true;
+        
+//         // Update session state
+//         session.awaitingAck = true;
+//         session.lastKeyPartNum = partNum;
+//         session.keyParts[fileIndex] = keyPart;
+        
+//         // Set timeout for ACK
+//         if (session.ackTimeout) {
+//             clearTimeout(session.ackTimeout);
+//         }
+        
+//         session.ackTimeout = setTimeout(() => {
+//             if (session.awaitingAck && session.lastKeyPartNum === partNum) {
+//                 console.log(`   ⏰ ACK timeout for client ${sock.remotePort}, part ${partNum}`);
+//                 sendError(sock, "ACK timeout - session reset");
+//                 clientSession.secretSession = null;
+//             }
+//         }, 30000);
+//     });
+// }
 
 function sendFileWithKeyPart(sock, filename, clientSession) {
     const session = clientSession.secretSession;
     const fileIndex = session.nextFileIndex;
     const partNum = fileIndex + 1; // 1, 2, or 3
+
+    // if (!session || !session.awaitingQuery) {
+    //     console.log(`   ⚠️ Preventing automatic resend of ${filename}`);
+    //     return;
+    // }
+
+    // 🔴 GUARD 1: Check if this file should be sent now
+    if (filename !== session.expectedFiles[fileIndex]) {
+        console.log(`   ⚠️ Not sending ${filename} - not the current expected file`);
+        return;
+    }
+    
+    // 🔴 GUARD 2: Check if this file was already sent
+    // if (session.fileSent[fileIndex]) {
+    //     console.log(`   ⚠️ File ${filename} already sent, ignoring duplicate call`);
+    //     return;
+    // }
     
     // Split the key and get the right part
     const keyParts = secretHandler.splitKey(session.variant.key);
@@ -410,10 +501,10 @@ function handleAck(sock, clientId) {
     }
     
     // Optional: Send ACK confirmation
-    let seqNum = singleton.getSequenceNumber();
-    let confirmMsg = Buffer.from(`ACK received for part ${session.lastKeyPartNum}`);
-    MTPpacket.init(1, seqNum, 0, 1, confirmMsg);
-    sock.write(MTPpacket.getBytePacket());
+    // let seqNum = singleton.getSequenceNumber();
+    // let confirmMsg = Buffer.from(`ACK received for part ${session.lastKeyPartNum}`);
+    // MTPpacket.init(1, seqNum, 0, 1, confirmMsg);
+    // sock.write(MTPpacket.getBytePacket());
 }
 
 function sendError(sock, message) {

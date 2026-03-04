@@ -35,7 +35,8 @@ class SecretHandler {
      * @returns {Object} Current variant with window information
      */
     getCurrentVariant() {
-         const now = singleton.getTimestamp(); 
+        const now = singleton.getTimestamp();
+        console.log("Current time: ", now); 
         const windowIndex = Math.floor(now / this.WINDOW_DURATION);
         const variantIndex = windowIndex % this.variants.length;
         
@@ -64,6 +65,7 @@ class SecretHandler {
      */
     isWindowValid(startWindow) {
         const now = singleton.getTimestamp();
+        console.log("Current time: ", now); 
         const currentWindow = Math.floor(now / this.WINDOW_DURATION);
         return startWindow === currentWindow;
     }
@@ -74,6 +76,7 @@ class SecretHandler {
      */
     getCurrentWindow() {
         const now = singleton.getTimestamp();
+        console.log("Current time: ", now); 
         return Math.floor(now / this.WINDOW_DURATION);
     }
     
