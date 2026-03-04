@@ -65,6 +65,8 @@ module.exports = {
     for (var Pi = 0; Pi < this.payloadSize; Pi++)
       packet[Pi + HEADER_SIZE] = this.payload[Pi];
 
+    console.log(`🔍 MTPResponse sending - reserved bytes: ${packet[4].toString(16)} ${packet[5].toString(16)} ${packet[6].toString(16)} ${packet[7].toString(16)}`);
+    
     return packet;
   },
 };
