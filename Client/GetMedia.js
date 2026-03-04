@@ -177,11 +177,21 @@ client.on('data', (data) => {
 client.on('end', () => {
     console.log('\nDisconnected from the server');
     console.log('Connection closed');
+    process.exit(0); // Exit cleanly
 });
 
 client.on('error', (err) => {
     console.error('Client error:', err.message);
 });
+
+// Also add a timeout as backup
+setTimeout(() => {
+    if (client) {
+        console.log('Forcing exit...');
+        client.end();
+        process.exit(0);
+    }
+}, 5000);
 
 // Timeout after 10 seconds
 // setTimeout(() => {
@@ -384,12 +394,12 @@ function bytes2string(array) {
 
 // ============= INTERACTIVE MODE =============
 // If this was a secret session start, enter interactive mode
-if (args.type === 'secret') {
-    // Wait a bit for the riddle to be processed
-    setTimeout(() => {
-        startInteractiveMode();
-    }, 500);
-}
+// if (args.type === 'secret') {
+//     // Wait a bit for the riddle to be processed
+//     setTimeout(() => {
+//         startInteractiveMode();
+//     }, 500);
+// }
 
 function startInteractiveMode() {
     const readline = require('readline');

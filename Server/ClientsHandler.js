@@ -12,7 +12,7 @@ const clientSessions = {};
 
 module.exports = {
   handleClientJoining: function (sock) {
-    const clientId = sock.remotePort; // Use port as ID
+    const clientId = sock.remoteAddress; // Use IP address instead of port
     console.log(`Client ${clientId} connected`);
     
     // Get or create session for this client
