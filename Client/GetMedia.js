@@ -4,9 +4,13 @@ let open = require("open");
 let MTPpacket = require("./MTPRequest"),// uncomment this line after you run npm install command
 
 singleton = require("./Singleton");
-let keyParts = []; 
+console.log('🔧 INITIALIZING keyParts array at:', new Date().toISOString());
+// let keyParts = []; 
 let responseTimeout = null;
 let lastAckSent = null;
+
+let keyParts = [null, null, null];  // Change to fixed size array
+let pendingKeyParts = {};  // New: track chunks for each part number
 
 // call as GetImage -s <serverIP>:<port> -q <image name> -v <version>
 
@@ -55,8 +59,61 @@ function getMediaType(filename) {
 // Main execution
 const args = parseArgs();
 
-if (!args.server || !args.query) {
-    console.error('Usage: node GetMedia -s <serverIP:port> -q <media name> -v <version> --type <secret/query>');
+// if (!args.server) {
+//     console.error('Usage: node GetMedia -s <serverIP:port> -q <media name> -v <version> --type <secret/query>');
+//     process.exit(1);
+// }
+
+// // Parse server address
+// const [host, port] = args.server.split(':');
+// if (!host || !port) {
+//     console.error('Invalid server address. Use format: ip:port');
+//     process.exit(1);
+// }
+
+// console.log(`Connected to MediaDB server on: ${host}:${port}`);
+
+// // Default request type is query!
+// let requestType = 1; // Default Query
+// if (args.type === 'secret') requestType = 2;
+// else if (args.type === 'ack') requestType = 3;
+// else if (args.query.toLowerCase().endsWith('.txt')) requestType = 4;
+// else if (args.type === 'reset') requestType = 5;
+
+// // Extract filename without extension for the request
+// const fullFilename = args.query;
+// const baseFilename = fullFilename.includes('.') ? 
+//     fullFilename.substring(0, fullFilename.lastIndexOf('.')) : fullFilename;
+// const mediaType = getMediaType(fullFilename);
+
+// console.log(`Requesting: ${fullFilename} (base: ${baseFilename}, type: ${mediaType})`);
+// console.log(`Version: ${args.version}`);
+// console.log(`Request type: ${args.type} (${requestType})`);
+
+// global.currentRequestType = requestType;
+// global.requestedFilename = fullFilename;
+
+// // Initialize MTPpacket with request data
+// // init(version, requestType, timestamp, mediaType, filename)
+// const timestamp = singleton.getTimestamp();
+// MTPpacket.init(requestType, timestamp, mediaType, baseFilename);
+
+// // Get the complete request packet
+// const requestPacket = MTPpacket.getBytePacket();
+
+// console.log('\nMTP request packet sent:');
+// printPacketBit(requestPacket);
+
+// // Connect to server
+// const client = net.createConnection(parseInt(port), host, () => {
+//     resetTimeout();
+//     console.log('Connected to server, sending request...');
+//     client.write(requestPacket);
+// });
+
+// start here
+if (!args.server) {
+    console.error('Usage: node GetMedia -s <serverIP:port> [-q <media name>] -v <version> --type <secret/query>');
     process.exit(1);
 }
 
@@ -69,27 +126,49 @@ if (!host || !port) {
 
 console.log(`Connected to MediaDB server on: ${host}:${port}`);
 
-// Determine request type (1 = Query, 2 = Secret, 3 = ACK, 4 = Complete, 5 = Reset)
+// Determine request type
 let requestType = 1; // Default Query
 if (args.type === 'secret') requestType = 2;
 else if (args.type === 'ack') requestType = 3;
-else if (args.query.toLowerCase().endsWith('.txt')) requestType = 4;
 else if (args.type === 'reset') requestType = 5;
-// Extract filename without extension for the request
-const fullFilename = args.query;
-const baseFilename = fullFilename.includes('.') ? 
-    fullFilename.substring(0, fullFilename.lastIndexOf('.')) : fullFilename;
-const mediaType = getMediaType(fullFilename);
 
-console.log(`Requesting: ${fullFilename} (base: ${baseFilename}, type: ${mediaType})`);
+// Handle filename (optional for secret sessions)
+let fullFilename = args.query;
+let baseFilename = "";
+let mediaType = 0;
+
+if (args.query) {
+    // User provided a filename
+    fullFilename = args.query;
+    baseFilename = fullFilename.includes('.') ? 
+        fullFilename.substring(0, fullFilename.lastIndexOf('.')) : fullFilename;
+    mediaType = getMediaType(fullFilename);
+    
+    // Check for .txt extension to auto-set request type (optional feature)
+    if (fullFilename.toLowerCase().endsWith('.txt')) {
+        requestType = 4; // Complete request for text files
+    }
+    
+    console.log(`Requesting: ${fullFilename} (base: ${baseFilename}, type: ${mediaType})`);
+} else if (requestType === 2) {
+    // Secret session without a filename
+    console.log('Initiating secret session (no specific file requested)');
+    baseFilename = "";
+    mediaType = 0;
+} else {
+    // Non-secret request requires a filename
+    console.error('Error: -q <media name> is required for non-secret requests');
+    console.error('Usage: node GetMedia -s <serverIP:port> -q <media name> -v <version> --type <secret/query>');
+    process.exit(1);
+}
+
 console.log(`Version: ${args.version}`);
 console.log(`Request type: ${args.type} (${requestType})`);
 
 global.currentRequestType = requestType;
-global.requestedFilename = fullFilename;
+global.requestedFilename = fullFilename || "secret_session";
 
 // Initialize MTPpacket with request data
-// init(version, requestType, timestamp, mediaType, filename)
 const timestamp = singleton.getTimestamp();
 MTPpacket.init(requestType, timestamp, mediaType, baseFilename);
 
@@ -105,6 +184,7 @@ const client = net.createConnection(parseInt(port), host, () => {
     console.log('Connected to server, sending request...');
     client.write(requestPacket);
 });
+// end here
 
 // Response handling
 let responseBuffer = Buffer.alloc(0);
@@ -184,24 +264,13 @@ client.on('error', (err) => {
     console.error('Client error:', err.message);
 });
 
-// Also add a timeout as backup
+// Adding a timeout to ensure that we can retype in the terminal after 
 setTimeout(() => {
     if (client) {
-        console.log('Forcing exit...');
         client.end();
         process.exit(0);
     }
 }, 5000);
-
-// Timeout after 10 seconds
-// setTimeout(() => {
-//     console.log('Response Header: ', responseHeader);
-//     console.log('fileDatalength: ', fileData.length);
-//     if (!responseHeader && fileData.length === 0) {
-//         console.log('\nTimeout: No response received');
-//         client.end();
-//     }
-// }, 10000);
 
 function parseResponseHeader(buffer) {
     if (buffer.length < 12) return null;
@@ -229,56 +298,172 @@ function parseResponseHeader(buffer) {
     };
 }
 
+// function handleResponse(header, payload) {
+//     console.log('\n🔍 HANDLE RESPONSE DEBUG:');
+//     console.log(`   responseType: ${header.responseType}`);
+//     console.log(`   reserved: 0x${header.reserved.toString(16)}`);
+//     console.log(`   reserved !== 0: ${header.reserved !== 0}`);
+//     console.log(`   currentRequestType: ${global.currentRequestType}`);
+//     // Check response type
+//     if (header.responseType === 1) { // Found
+//         // Check if this is a secret session file (has key part in reserved field)
+//         if (header.reserved !== 0) {
+//             // This is a file with a key part!
+            
+//             // Decode the reserved field to get key part info
+//             const keyInfo = decodeReserved(header.reserved);
+//             const keyChar1 = String.fromCharCode(keyInfo.char1);
+//             const keyChar2 = String.fromCharCode(keyInfo.char2);
+//             const keyPart = keyChar1 + keyChar2;
+            
+//             console.log(`\n🔑 Received key part ${keyInfo.partNum}: "${keyPart}"`);
+
+//             if (keyParts[keyInfo.partNum - 1]) {
+//                 console.log(`ACK Received`);
+//                 return;
+//             }
+            
+//             // Store the key part
+//             keyParts[keyInfo.partNum - 1] = keyPart;
+            
+//             for (let i = 0; i < keyParts.length; i++) {
+//                 console.log(`keyParts[${i}] =`, keyParts[i]);
+//             }
+
+//             var fullKey = "";
+
+//             if (keyParts[0] && keyParts[1] && keyParts[2]) {
+//                 console.log('\n🎉 All 3 key parts collected!');
+//                 fullKey = keyParts.join('');
+//                 console.log('Full key:', fullKey);
+//                 console.log('Automatically sending COMPLETE request...');
+                
+//                 // Send COMPLETE request (type=4)
+//                 sendRequest(4, "", 0);
+//                 return;
+//             }
+            
+//             // === AUTOMATICALLY SEND ACK ===
+//             sendAck(header.reserved);
+            
+//             // Then save the file
+//             if (fullKey == "") {
+//                 saveAndOpenFile(payload, global.requestedFilename);
+//             } else {
+//                 decodeSaveAndOpenFile(data, filename, fullKey);
+//             }        
+//         } 
+//         else if (global.currentRequestType === 2) {
+//             // This was a SECRET request - response is a RIDDLE
+//             console.log('\n📜 ===== RIDDLE RECEIVED =====');
+//             console.log(payload.toString());
+//             console.log('============================\n');
+//             console.log('Now you need to request the files in order:');
+//         }
+//         else {
+//             // Normal file without key part
+//             saveAndOpenFile(payload, global.requestedFilename);
+//         }
+//     } else if (header.responseType === 2) { // Not Found
+//         console.log('\n❌ File not found on server');
+//         if (payload.length > 0) {
+//             console.log('Error message:', payload.toString());
+//         }
+//     } else if (header.responseType === 3) { // Busy
+//         console.log('\n⏳ Server is busy');
+//     }
+// }
+
+// // REPLACE your entire existing handleResponse function with this
 function handleResponse(header, payload) {
     console.log('\n🔍 HANDLE RESPONSE DEBUG:');
     console.log(`   responseType: ${header.responseType}`);
-    console.log(`   reserved: 0x${header.reserved.toString(16)}`);
-    console.log(`   reserved !== 0: ${header.reserved !== 0}`);
-    console.log(`   currentRequestType: ${global.currentRequestType}`);
-    // Check response type
+    console.log(`   reserved: 0x${header.reserved.toString(16).padStart(8, '0')}`);
+    console.log(`   sequenceNum: ${header.sequenceNum}`);
+    console.log(`   lastFlag: ${header.lastFlag}`);
+    
     if (header.responseType === 1) { // Found
-        // Check if this is a secret session file (has key part in reserved field)
+        
+        // Check if this is a secret session packet (reserved has data)
+        // If it is a normal query the reserved is 0
         if (header.reserved !== 0) {
-            // This is a file with a key part!
             
-            // Decode the reserved field to get key part info
-            const keyInfo = decodeReserved(header.reserved);
-            const keyChar1 = String.fromCharCode(keyInfo.char1);
-            const keyChar2 = String.fromCharCode(keyInfo.char2);
-            const keyPart = keyChar1 + keyChar2;
+            // Decode the reserved field
+            const decoded = decodeReserved(header.reserved);
+            const partNum = decoded.partNum;
+            const chars = (decoded.char1 + decoded.char2).replace(/\0/g, '');
             
-            console.log(`\n🔑 Received key part ${keyInfo.partNum}: "${keyPart}"`);
-
-            if (keyParts[keyInfo.partNum - 1]) {
-                console.log(`ACK Received`);
-                return;
+            console.log(`\n🔑 Packet decoded:`);
+            console.log(`   Part Number: ${partNum}`);
+            console.log(`   Window ID: ${decoded.windowId}`);
+            console.log(`   Characters: "${chars}"`);
+            
+            // Initialize storage for this part if needed
+            if (!pendingKeyParts[partNum]) {
+                pendingKeyParts[partNum] = {
+                    chunks: [],        // Store character chunks
+                    packetCount: 0,    // Number of packets received
+                    fileData: null     // Will store file when received
+                };
+                console.log(`   🆕 Started tracking part ${partNum}`);
             }
             
-            // Store the key part
-            keyParts[keyInfo.partNum - 1] = keyPart;
-
-            if (keyParts[0] && keyParts[1] && keyParts[2]) {
-                console.log('\n🎉 All 3 key parts collected!');
-                console.log('Full key:', keyParts.join(''));
-                console.log('Automatically sending COMPLETE request...');
+            // Store non-null characters
+            if (chars.length > 0) {
+                pendingKeyParts[partNum].chunks.push(chars);
+                pendingKeyParts[partNum].packetCount++;
+                console.log(`   📦 Stored chunk: "${chars}" (total chunks: ${pendingKeyParts[partNum].chunks.length})`);
+            }
+            
+            // If this is the last packet (has payload and lastFlag=1)
+            if (header.lastFlag === 1 && payload.length > 0) {
+                console.log(`\n📁 Received file data (${payload.length} bytes)`);
+                pendingKeyParts[partNum].fileData = payload;
                 
-                // Send COMPLETE request (type=4)
-                sendRequest(4, "", 0);
-                return;
+                // Reconstruct the full key part from all stored chunks
+                const fullKeyPart = pendingKeyParts[partNum].chunks.join('');
+                console.log(`\n✅ Reconstructed key part ${partNum}: "${fullKeyPart}"`);
+                
+                // Store in final key parts array
+                keyParts[partNum - 1] = fullKeyPart;
+                
+                // Show all key parts so far
+                console.log('\n📊 Current key parts:');
+                keyParts.forEach((part, i) => {
+                    console.log(`   Part ${i+1}: ${part ? `"${part}"` : '[missing]'}`);
+                });
+                
+                // Send ACK for this part
+                sendAck(header.reserved);
+                
+                // Check if we have all 3 parts
+                if (keyParts[0] && keyParts[1] && keyParts[2]) {
+                    console.log('\n🎉 ===== ALL 3 KEY PARTS COLLECTED =====');
+                    const fullKey = keyParts.join('');
+                    console.log(`   Full key: "${fullKey}"`);
+                    console.log('=====================================\n');
+                    decodeSaveAndOpenFile(data, filename, fullKey);
+                    // Send COMPLETE request
+                    // setTimeout(() => {
+                    //     sendRequest(4, "secret", 0);
+                    // }, 500);
+                } else {
+                    // Save the file
+                    saveAndOpenFile(payload, global.requestedFilename); 
+                }
             }
-            
-            // === AUTOMATICALLY SEND ACK ===
-            sendAck(header.reserved);
-            
-            // Then save the file
-            saveAndOpenFile(payload, global.requestedFilename);
         } 
         else if (global.currentRequestType === 2) {
             // This was a SECRET request - response is a RIDDLE
             console.log('\n📜 ===== RIDDLE RECEIVED =====');
             console.log(payload.toString());
             console.log('============================\n');
-            console.log('Now you need to request the files in order:');
+            console.log('Automatically requesting files in order:');
+            
+            // Reset state for new secret session
+            keyParts = [null, null, null];
+            pendingKeyParts = {};
+            currentFileIndex = 0;
         }
         else {
             // Normal file without key part
@@ -292,9 +477,6 @@ function handleResponse(header, payload) {
     } else if (header.responseType === 3) { // Busy
         console.log('\n⏳ Server is busy');
     }
-    
-    // Don't close connection here - let the timeout handle it
-    // client.end();  // REMOVE THIS LINE
 }
 
 // New function to send ACK automatically
@@ -332,14 +514,34 @@ function sendAck(reservedValue) {
 }
 
 // Helper to decode reserved field
+// function decodeReserved(reserved) {
+//     return {
+//         char1: (reserved >> 24) & 0xFF,
+//         char2: (reserved >> 16) & 0xFF,
+//         partNum: (reserved >> 8) & 0xFF,
+//         windowId: reserved & 0xFF
+//     };
+// }
+
 function decodeReserved(reserved) {
     return {
-        char1: (reserved >> 24) & 0xFF,
-        char2: (reserved >> 16) & 0xFF,
-        partNum: (reserved >> 8) & 0xFF,
-        windowId: reserved & 0xFF
+        char1: String.fromCharCode((reserved >> 24) & 0xFF),
+        char2: String.fromCharCode((reserved >> 16) & 0xFF),
+        partNum: (reserved >> 8) & 0xFF,   // partNum is in bits 8-15
+        windowId: reserved & 0xFF           // windowId is in bits 0-7
     };
 }
+
+// function decodeReserved(reserved) {
+//     return {
+//         partNum: (reserved >> 24) & 0xFF,
+//         windowId: (reserved >> 16) & 0xFF,
+//         char1: String.fromCharCode((reserved >> 8) & 0xFF),
+//         char2: String.fromCharCode(reserved & 0xFF),
+//         char1Code: (reserved >> 8) & 0xFF,
+//         char2Code: reserved & 0xFF
+//     };
+// }
 
 function getResponseTypeName(type) {
     const types = ['Query', 'Found', 'Not Found', 'Busy'];
@@ -355,6 +557,46 @@ function saveAndOpenFile(data, filename) {
     // Open with default viewer
     console.log('Opening with default viewer...');
     open(outputFilename);
+}
+
+function decodeSaveAndOpenFile(data, filename, fullKey) {
+    const outputFilename = `downloaded_${filename}`;
+    
+    fs.writeFileSync(outputFilename, data);
+    const content = data.toString('utf8');
+    let result = "";
+    let j = 0;  // Key index
+
+    for (let i = 0; i < content.length; i++) {
+        const char = content[i];
+        
+        // Reset j if it reaches key length
+        if (j >= fullKey.length) {
+            j = 0;
+        }
+        
+        // Only process letters
+        if (char.match(/[A-Za-z]/)) {
+            const isUpper = char === char.toUpperCase();
+            const charCode = char.toUpperCase().charCodeAt(0) - 65;
+            const keyCode = fullKey[j].toUpperCase().charCodeAt(0) - 65;
+            
+            // Vigenère decryption formula
+            let decryptedCode = (charCode - keyCode + 26) % 26;
+            let decryptedChar = String.fromCharCode(decryptedCode + 65);
+            
+            // Restore original case
+            result += isUpper ? decryptedChar : decryptedChar.toLowerCase();
+            j++;  // Move to next key character
+        } else {
+            // Keep non-letters unchanged
+            result += char;
+        }
+    }
+
+    const decryptedFilename = `decrypted_${filename}`;
+    fs.writeFileSync(decryptedFilename, result);
+    open(decryptedFilename);
 }
 
 //some helper functions

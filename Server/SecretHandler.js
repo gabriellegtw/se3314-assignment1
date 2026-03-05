@@ -14,15 +14,15 @@ class SecretHandler {
             },
              {
                 id: 1,
-                key: "imcryingwhiledoingthis",
-                secretFile: "secret2.txt",
+                key: "plzunklandsee",
+                secretFile: "secret.txt",
                 fileSequence: ["Rose.gif", "bunny.mp4", "planet.mov"],
                 riddle: "Hello! I have a secret for you. Only if you send me a Rose, a Lily, and a bunny. Send me through a flicker and we will watch the movie planet together."
             },
             {
                 id: 2,
-                key: "homeworkhomework",
-                secretFile: "secret3.txt",
+                key: "plzunklandsee",
+                secretFile: "secret.txt",
                 fileSequence: ["Rose.gif", "bunny.mp4", "planet.mov"],
                 riddle: "Hello! I have a secret for you. Only if you send me a Rose, a Lily, and a bunny. Send me through a flicker and we will watch the movie planet together."
             },
