@@ -232,7 +232,7 @@ client.on('data', (data) => {
             if (fileData.length >= expectedPayloadSize) {
                 console.log(`Complete packet ${packetsReceived} received (${fileData.length} bytes payload)`);
                 const wasLastPacket = responseHeader.lastFlag;
-                handleResponse(responseHeader, fileData);
+                handleResponse(responseHeader, fileData, global.requestedFilename);
                 resetTimeout();
                 
                 responseHeader = null;
@@ -293,7 +293,7 @@ function parseResponseHeader(buffer) {
 }
 
 // // REPLACE your entire existing handleResponse function with this
-function handleResponse(header, payload) {
+function handleResponse(header, payload, filename) {
     console.log('\n🔍 HANDLE RESPONSE DEBUG:');
     console.log(`   responseType: ${header.responseType}`);
     console.log(`   reserved: 0x${header.reserved.toString(16).padStart(8, '0')}`);
@@ -357,12 +357,12 @@ function handleResponse(header, payload) {
                 sendAck(header.reserved);
                 
                 // Check if we have all 3 parts
-                if (keyParts[0] && keyParts[1] && keyParts[2]) {
+                if (keyParts[0] && keyParts[1] && keyParts[2] && filename.toLowerCase().endsWith('.txt')) {
                     console.log('\n🎉 ===== ALL 3 KEY PARTS COLLECTED =====');
                     const fullKey = keyParts.join('');
                     console.log(`   Full key: "${fullKey}"`);
                     console.log('=====================================\n');
-                    decodeSaveAndOpenFile(data, filename, fullKey);
+                    decodeSaveAndOpenFile(filename, fullKey);
                     // Send COMPLETE request
                     // setTimeout(() => {
                     //     sendRequest(4, "secret", 0);
@@ -463,17 +463,6 @@ function decodeReserved(reserved) {
     };
 }
 
-// function decodeReserved(reserved) {
-//     return {
-//         partNum: (reserved >> 24) & 0xFF,
-//         windowId: (reserved >> 16) & 0xFF,
-//         char1: String.fromCharCode((reserved >> 8) & 0xFF),
-//         char2: String.fromCharCode(reserved & 0xFF),
-//         char1Code: (reserved >> 8) & 0xFF,
-//         char2Code: reserved & 0xFF
-//     };
-// }
-
 function getResponseTypeName(type) {
     const types = ['Query', 'Found', 'Not Found', 'Busy'];
     return types[type] || 'Unknown';
@@ -490,11 +479,12 @@ function saveAndOpenFile(data, filename) {
     open(outputFilename);
 }
 
-function decodeSaveAndOpenFile(data, filename, fullKey) {
+function decodeSaveAndOpenFile(filename, fullKey) {
     const outputFilename = `downloaded_${filename}`;
     
-    fs.writeFileSync(outputFilename, data);
+    const data = fs.readFileSync(outputFilename);
     const content = data.toString('utf8');
+
     let result = "";
     let j = 0;  // Key index
 
