@@ -24,7 +24,7 @@ function parseArgs() {
         server: null,
         query: null,
         version: 11,
-        type: 'query'
+        type: null
     };
     
     for (let i = 0; i < args.length; i++) {
@@ -73,7 +73,7 @@ console.log(`Connected to MediaDB server on: ${host}:${port}`);
 let requestType = 1; // Default Query
 if (args.type === 'secret') requestType = 2;
 else if (args.type === 'ack') requestType = 3;
-else if (args.type === 'complete') requestType = 4;
+else if (args.query.toLowerCase().endsWith('.txt')) requestType = 4;
 else if (args.type === 'reset') requestType = 5;
 // Extract filename without extension for the request
 const fullFilename = args.query;
