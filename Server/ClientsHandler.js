@@ -240,8 +240,13 @@ function handleSecretFileRequest(sock, filename, clientSession) {
 // function sendFileWithKeyPart(sock, filename, clientSession) {
 //     const session = clientSession.secretSession;
 //     const fileIndex = session.nextFileIndex;
-//     const partNum = fileIndex + 1;
-    
+//     const partNum = fileIndex + 1; // 1, 2, or 3
+
+//     // if (!session || !session.awaitingQuery) {
+//     //     console.log(`   ⚠️ Preventing automatic resend of ${filename}`);
+//     //     return;
+//     // }
+
 //     // 🔴 GUARD 1: Check if this file should be sent now
 //     if (filename !== session.expectedFiles[fileIndex]) {
 //         console.log(`   ⚠️ Not sending ${filename} - not the current expected file`);
@@ -249,10 +254,10 @@ function handleSecretFileRequest(sock, filename, clientSession) {
 //     }
     
 //     // 🔴 GUARD 2: Check if this file was already sent
-//     if (session.fileSent[fileIndex]) {
-//         console.log(`   ⚠️ File ${filename} already sent, ignoring duplicate call`);
-//         return;
-//     }
+//     // if (session.fileSent[fileIndex]) {
+//     //     console.log(`   ⚠️ File ${filename} already sent, ignoring duplicate call`);
+//     //     return;
+//     // }
     
 //     // Split the key and get the right part
 //     const keyParts = secretHandler.splitKey(session.variant.key);
@@ -266,11 +271,13 @@ function handleSecretFileRequest(sock, filename, clientSession) {
 //         partNum,
 //         session.startWindow
 //     );
-    
+
 //     console.log(`   📦 Reserved field: 0x${reserved.toString(16)}`);
     
+//     // Path to the file
 //     const filePath = path.join(__dirname, 'images', filename);
     
+//     // Read and send the file
 //     fs.readFile(filePath, (err, data) => {
 //         if (err) {
 //             console.log(`   ❌ Error reading file: ${err.message}`);
@@ -278,24 +285,23 @@ function handleSecretFileRequest(sock, filename, clientSession) {
 //             return;
 //         }
         
+//         // Get sequence number
 //         let seqNum = singleton.getSequenceNumber();
         
+//         // Send MTP packet with key part in reserved field
+//         // type=1 (Found), seqNum, reserved, lastFlag=1, payload=data
 //         MTPpacket.init(1, seqNum, reserved, 1, data);
 //         var packet = MTPpacket.getBytePacket();
 //         sock.write(packet);
-        
 //         console.log(`   📤 Packet reserved bytes: ${packet[4].toString(16)} ${packet[5].toString(16)} ${packet[6].toString(16)} ${packet[7].toString(16)}`);
 //         console.log(`   ✅ Sent ${filename} (${data.length} bytes) with key part ${partNum}`);
-        
-//         // 🔴 MARK THIS FILE AS SENT
-//         session.fileSent[fileIndex] = true;
-        
-//         // Update session state
+//         // prints til here
+//         // Update session state - now waiting for ACK
 //         session.awaitingAck = true;
 //         session.lastKeyPartNum = partNum;
 //         session.keyParts[fileIndex] = keyPart;
         
-//         // Set timeout for ACK
+//         // Set timeout for ACK (30 seconds)
 //         if (session.ackTimeout) {
 //             clearTimeout(session.ackTimeout);
 //         }
@@ -315,37 +321,17 @@ function sendFileWithKeyPart(sock, filename, clientSession) {
     const fileIndex = session.nextFileIndex;
     const partNum = fileIndex + 1; // 1, 2, or 3
 
-    // if (!session || !session.awaitingQuery) {
-    //     console.log(`   ⚠️ Preventing automatic resend of ${filename}`);
-    //     return;
-    // }
-
     // 🔴 GUARD 1: Check if this file should be sent now
     if (filename !== session.expectedFiles[fileIndex]) {
         console.log(`   ⚠️ Not sending ${filename} - not the current expected file`);
         return;
     }
     
-    // 🔴 GUARD 2: Check if this file was already sent
-    // if (session.fileSent[fileIndex]) {
-    //     console.log(`   ⚠️ File ${filename} already sent, ignoring duplicate call`);
-    //     return;
-    // }
-    
     // Split the key and get the right part
     const keyParts = secretHandler.splitKey(session.variant.key);
-    const keyPart = keyParts[fileIndex];
+    const keyPart = keyParts[fileIndex]; // FULL key part like "kland"
     
     console.log(`   🔑 Sending key part ${partNum}/3: "${keyPart}"`);
-    
-    // Encode in reserved field
-    const reserved = secretHandler.encodeKeyPart(
-        keyPart,
-        partNum,
-        session.startWindow
-    );
-
-    console.log(`   📦 Reserved field: 0x${reserved.toString(16)}`);
     
     // Path to the file
     const filePath = path.join(__dirname, 'images', filename);
@@ -358,18 +344,42 @@ function sendFileWithKeyPart(sock, filename, clientSession) {
             return;
         }
         
-        // Get sequence number
-        let seqNum = singleton.getSequenceNumber();
+        // Get sequence number - ALL packets for this key part use SAME sequence
+        const baseSeqNum = singleton.getSequenceNumber();
         
-        // Send MTP packet with key part in reserved field
-        // type=1 (Found), seqNum, reserved, lastFlag=1, payload=data
-        MTPpacket.init(1, seqNum, reserved, 1, data);
-        var packet = MTPpacket.getBytePacket();
-        sock.write(packet);
-        console.log(`   📤 Packet reserved bytes: ${packet[4].toString(16)} ${packet[5].toString(16)} ${packet[6].toString(16)} ${packet[7].toString(16)}`);
-        console.log(`   ✅ Sent ${filename} (${data.length} bytes) with key part ${partNum}`);
-        // prints til here
-        // Update session state - now waiting for ACK
+        // --- CORRECT: Send ALL key characters in reserved field ---
+        const fullKeyPart = keyPart; // "kland"
+        let offset = 0;
+        let packetCount = 0;
+
+        // Send key part in multiple packets, 2 chars per packet in reserved field
+        while (offset < fullKeyPart.length) {
+            const charsForThisPacket = fullKeyPart.substring(offset, offset + 2);
+            
+            // Encode these 2 chars in reserved field
+            const reserved = secretHandler.encodeKeyPart(
+                charsForThisPacket,  // ← CRITICAL: key chars go in reserved!
+                partNum,
+                session.startWindow
+            );
+            
+            // For key-only packets, payload is empty (or could be empty)
+            const lastKeyPacket = (offset + 2 >= fullKeyPart.length);
+            
+            MTPpacket.init(1, baseSeqNum, reserved, 0, Buffer.alloc(0)); // Empty payload
+            sock.write(MTPpacket.getBytePacket());
+            console.log(`   📤 Sent key packet ${packetCount+1}: "${charsForThisPacket}" in reserved field`);
+            
+            offset += 2;
+            packetCount++;
+        }
+
+        // Then send file packet with reserved field containing metadata only (no key chars)
+        const fileReserved = secretHandler.encodeKeyPart("", partNum, session.startWindow);
+        MTPpacket.init(1, baseSeqNum + 1, fileReserved, 1, data); // Increment sequence number!
+        sock.write(MTPpacket.getBytePacket());
+        
+        // --- Update session state (YOUR EXISTING LOGIC, UNCHANGED) ---
         session.awaitingAck = true;
         session.lastKeyPartNum = partNum;
         session.keyParts[fileIndex] = keyPart;

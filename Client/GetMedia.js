@@ -4,9 +4,33 @@ let open = require("open");
 let MTPpacket = require("./MTPRequest"),// uncomment this line after you run npm install command
 
 singleton = require("./Singleton");
+console.log('🔧 INITIALIZING keyParts array at:', new Date().toISOString());
 let keyParts = []; 
 let responseTimeout = null;
 let lastAckSent = null;
+
+// // Add this with your other global variables (near the top)
+// let pendingKeyParts = new Map(); // Tracks partial key parts by sequence number
+// let accumulatedKeyParts = []; // Stores completed key parts
+
+// // Load previously saved key parts (for persistence across runs)
+// try {
+//     const fs = require('fs');
+//     const saved = fs.readFileSync('./key_parts.json', 'utf8');
+//     accumulatedKeyParts = JSON.parse(saved);
+//     console.log('📂 Loaded previous key parts:', accumulatedKeyParts);
+// } catch (e) {
+//     accumulatedKeyParts = [];
+//     console.log('🆕 Starting fresh key parts');
+// }
+
+// // Save function for persistence
+// function saveKeyParts() {
+//     try {
+//         const fs = require('fs');
+//         fs.writeFileSync('./key_parts.json', JSON.stringify(accumulatedKeyParts));
+//     } catch (e) {}
+// }
 
 // call as GetImage -s <serverIP>:<port> -q <image name> -v <version>
 
@@ -69,7 +93,7 @@ if (!host || !port) {
 
 console.log(`Connected to MediaDB server on: ${host}:${port}`);
 
-// Determine request type (1 = Query, 2 = Secret, 3 = ACK, 4 = Complete, 5 = Reset)
+// Default request type is query!
 let requestType = 1; // Default Query
 if (args.type === 'secret') requestType = 2;
 else if (args.type === 'ack') requestType = 3;
@@ -184,24 +208,13 @@ client.on('error', (err) => {
     console.error('Client error:', err.message);
 });
 
-// Also add a timeout as backup
+// Adding a timeout to ensure that we can retype in the terminal after 
 setTimeout(() => {
     if (client) {
-        console.log('Forcing exit...');
         client.end();
         process.exit(0);
     }
 }, 5000);
-
-// Timeout after 10 seconds
-// setTimeout(() => {
-//     console.log('Response Header: ', responseHeader);
-//     console.log('fileDatalength: ', fileData.length);
-//     if (!responseHeader && fileData.length === 0) {
-//         console.log('\nTimeout: No response received');
-//         client.end();
-//     }
-// }, 10000);
 
 function parseResponseHeader(buffer) {
     if (buffer.length < 12) return null;
@@ -256,10 +269,17 @@ function handleResponse(header, payload) {
             
             // Store the key part
             keyParts[keyInfo.partNum - 1] = keyPart;
+            
+            for (let i = 0; i < keyParts.length; i++) {
+                console.log(`keyParts[${i}] =`, keyParts[i]);
+            }
+
+            var fullKey = "";
 
             if (keyParts[0] && keyParts[1] && keyParts[2]) {
                 console.log('\n🎉 All 3 key parts collected!');
-                console.log('Full key:', keyParts.join(''));
+                fullKey = keyParts.join('');
+                console.log('Full key:', fullKey);
                 console.log('Automatically sending COMPLETE request...');
                 
                 // Send COMPLETE request (type=4)
@@ -271,7 +291,11 @@ function handleResponse(header, payload) {
             sendAck(header.reserved);
             
             // Then save the file
-            saveAndOpenFile(payload, global.requestedFilename);
+            if (fullKey == "") {
+                saveAndOpenFile(payload, global.requestedFilename);
+            } else {
+                decodeSaveAndOpenFile(data, filename, fullKey);
+            }        
         } 
         else if (global.currentRequestType === 2) {
             // This was a SECRET request - response is a RIDDLE
@@ -292,10 +316,177 @@ function handleResponse(header, payload) {
     } else if (header.responseType === 3) { // Busy
         console.log('\n⏳ Server is busy');
     }
-    
-    // Don't close connection here - let the timeout handle it
-    // client.end();  // REMOVE THIS LINE
 }
+
+// // REPLACE your entire existing handleResponse function with this
+// function handleResponse(header, payload) {
+//     console.log(`\n🔍 HANDLE RESPONSE DEBUG:`);
+//     console.log(`   responseType: ${header.responseType}`);
+//     console.log(`   reserved: 0x${header.reserved.toString(16)}`);
+//     console.log(`   sequenceNum: ${header.sequenceNum}`);
+//     console.log(`   lastFlag: ${header.lastFlag}`);
+
+//     // Handle different response types
+//     if (header.responseType === 1) { // Found with key part
+//         const seqNum = header.sequenceNum;
+//         const lastFlag = header.lastFlag;
+        
+//         // Decode reserved field
+//         const char1 = String.fromCharCode((header.reserved >> 24) & 0xFF);
+//         const char2 = String.fromCharCode((header.reserved >> 16) & 0xFF);
+//         const partNum = (header.reserved >> 8) & 0xFF;
+//         const windowId = header.reserved & 0xFF;
+        
+//         const firstTwoChars = char1 + char2;
+        
+//         console.log(`\n🔑 Key part packet:`);
+//         console.log(`   Part Number: ${partNum}`);
+//         console.log(`   First two chars: "${firstTwoChars}"`);
+//         console.log(`   Window ID: 0x${windowId.toString(16)}`);
+        
+//         // Check if this is a new multi-packet sequence or continuation
+//         if (!pendingKeyParts.has(seqNum)) {
+//             // First packet for this sequence number
+//             console.log(`   Starting new pending key part for seq=${seqNum}`);
+            
+//             let keySoFar = firstTwoChars;
+            
+//             // Add payload if present
+//             if (payload && payload.length > 0) {
+//                 const payloadStr = payload.toString('ascii').replace(/\0/g, '');
+//                 if (payloadStr) {
+//                     keySoFar += payloadStr;
+//                     console.log(`   Added payload: +"${payloadStr}"`);
+//                 }
+//             }
+            
+//             pendingKeyParts.set(seqNum, {
+//                 partNum: partNum,
+//                 windowId: windowId,
+//                 keySoFar: keySoFar,
+//                 packetCount: 1
+//             });
+            
+//             console.log(`   Current key so far: "${keySoFar}"`);
+//         } else {
+//             // Continuation packet for existing sequence
+//             const pending = pendingKeyParts.get(seqNum);
+//             pending.packetCount++;
+            
+//             console.log(`   Continuation packet ${pending.packetCount} for seq=${seqNum}`);
+            
+//             // Add payload to key so far
+//             if (payload && payload.length > 0) {
+//                 const payloadStr = payload.toString('ascii').replace(/\0/g, '');
+//                 if (payloadStr) {
+//                     pending.keySoFar += payloadStr;
+//                     console.log(`   Added payload: +"${payloadStr}"`);
+//                     console.log(`   Current key so far: "${pending.keySoFar}"`);
+//                 }
+//             }
+//         }
+        
+//         // Check if this is the LAST packet of the sequence
+//         if (lastFlag === 1) {
+//             // This is the final packet - assemble complete key part
+//             const pending = pendingKeyParts.get(seqNum);
+            
+//             if (pending) {
+//                 const completeKeyPart = pending.keySoFar;
+                
+//                 console.log(`\n✅ COMPLETE KEY PART ${pending.partNum} RECEIVED:`);
+//                 console.log(`   "${completeKeyPart}"`);
+//                 console.log(`   Assembled from ${pending.packetCount} packet(s)`);
+                
+//                 // Store in accumulated array
+//                 accumulatedKeyParts[pending.partNum - 1] = completeKeyPart;
+                
+//                 // Save to disk
+//                 saveKeyParts();
+                
+//                 // Show all parts so far
+//                 console.log('\n📊 Current key parts:');
+//                 for (let i = 0; i < 3; i++) {
+//                     if (accumulatedKeyParts[i]) {
+//                         console.log(`   Part ${i+1}: "${accumulatedKeyParts[i]}"`);
+//                     } else {
+//                         console.log(`   Part ${i+1}: [missing]`);
+//                     }
+//                 }
+                
+//                 // Check if we have all 3 parts
+//                 if (accumulatedKeyParts.length >= 3 && 
+//                     accumulatedKeyParts[0] && 
+//                     accumulatedKeyParts[1] && 
+//                     accumulatedKeyParts[2]) {
+                    
+//                     const finalKey = accumulatedKeyParts.slice(0, 3).join('');
+//                     console.log('\n' + '='.repeat(50));
+//                     console.log(`🎉 COMPLETE KEY ASSEMBLED: "${finalKey}"`);
+//                     console.log('='.repeat(50) + '\n');
+                    
+//                     // Save final key
+//                     try {
+//                         const fs = require('fs');
+//                         fs.writeFileSync('./complete_key.txt', finalKey);
+//                     } catch (e) {}
+//                 }
+                
+//                 // --- SEND ACK with ALL previous parts ---
+//                 // Build combined string of all parts received so far
+//                 let combinedKey = '';
+//                 for (let i = 0; i < pending.partNum; i++) {
+//                     if (accumulatedKeyParts[i]) {
+//                         combinedKey += accumulatedKeyParts[i];
+//                     }
+//                 }
+                
+//                 console.log(`\n📨 ===== SENDING ACK for part ${pending.partNum} =====`);
+//                 console.log(`   Combined key: "${combinedKey}"`);
+                
+//                 // Encode combined key into reserved field (4 bytes)
+//                 let ackReserved = 0;
+                
+//                 // Put first 4 chars of combined key into reserved
+//                 for (let i = 0; i < Math.min(4, combinedKey.length); i++) {
+//                     ackReserved |= (combinedKey.charCodeAt(i) << (24 - i * 8));
+//                 }
+                
+//                 // Add windowId in last byte
+//                 ackReserved = (ackReserved & 0xFFFFFF00) | (pending.windowId & 0xFF);
+                
+//                 console.log(`   ACK reserved: 0x${ackReserved.toString(16).padStart(8, '0')}`);
+                
+//                 sendAck(ackReserved);
+                
+//                 // Clean up
+//                 pendingKeyParts.delete(seqNum);
+//             }
+//         } else {
+//             // Not the last packet yet
+//             console.log(`   ⏳ Waiting for more packets for seq=${seqNum}...`);
+//         }
+        
+//         // Your existing file saving code here
+//         // (if you have code to save the file, keep it)
+        
+//     } else if (header.responseType === 2) { // Not Found
+//         if (payload && payload.length > 0) {
+//             const errorMsg = payload.toString('ascii').replace(/\0/g, '');
+//             console.log(`\n❌ Server error: ${errorMsg}`);
+            
+//             // Check if error mentions missing part
+//             const match = errorMsg.match(/part (\d+)/);
+//             if (match) {
+//                 const missingPart = parseInt(match[1]);
+//                 console.log(`   Server indicates we're missing part ${missingPart}`);
+//                 console.log(`   Current parts:`, accumulatedKeyParts);
+//             }
+//         }
+//     }
+    
+//     // Reset timeout or other existing code
+// }
 
 // New function to send ACK automatically
 // Replace your entire sendAck function with this:
@@ -355,6 +546,46 @@ function saveAndOpenFile(data, filename) {
     // Open with default viewer
     console.log('Opening with default viewer...');
     open(outputFilename);
+}
+
+function decodeSaveAndOpenFile(data, filename, fullKey) {
+    const outputFilename = `downloaded_${filename}`;
+    
+    fs.writeFileSync(outputFilename, data);
+    const content = data.toString('utf8');
+    let result = "";
+    let j = 0;  // Key index
+
+    for (let i = 0; i < content.length; i++) {
+        const char = content[i];
+        
+        // Reset j if it reaches key length
+        if (j >= fullKey.length) {
+            j = 0;
+        }
+        
+        // Only process letters
+        if (char.match(/[A-Za-z]/)) {
+            const isUpper = char === char.toUpperCase();
+            const charCode = char.toUpperCase().charCodeAt(0) - 65;
+            const keyCode = fullKey[j].toUpperCase().charCodeAt(0) - 65;
+            
+            // Vigenère decryption formula
+            let decryptedCode = (charCode - keyCode + 26) % 26;
+            let decryptedChar = String.fromCharCode(decryptedCode + 65);
+            
+            // Restore original case
+            result += isUpper ? decryptedChar : decryptedChar.toLowerCase();
+            j++;  // Move to next key character
+        } else {
+            // Keep non-letters unchanged
+            result += char;
+        }
+    }
+
+    const decryptedFilename = `decrypted_${filename}`;
+    fs.writeFileSync(decryptedFilename, result);
+    open(decryptedFilename);
 }
 
 //some helper functions
