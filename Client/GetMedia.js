@@ -22,7 +22,13 @@ function loadSavedKeyParts() {
         if (fs.existsSync(KEY_PARTS_FILE)) {
             const saved = fs.readFileSync(KEY_PARTS_FILE, 'utf8');
             const data = JSON.parse(saved);
-            keyParts = data.keyParts || [null, null, null];
+
+            keyParts = [null, null, null];
+            if (data.keyParts && Array.isArray(data.keyParts)) {
+                for (let i = 0; i < 3 && i < data.keyParts.length; i++) {
+                    keyParts[i] = data.keyParts[i];
+                }
+            }
             currentSessionId = data.sessionId || null;
             console.log('📂 Loaded saved key parts:', keyParts);
             console.log('🔐 Saved session ID:', currentSessionId);
@@ -37,13 +43,14 @@ function loadSavedKeyParts() {
 // Save key parts to file
 function saveKeyParts() {
     try {
+        const partsToSave = keyParts.slice(0, 3);
         const data = {
-            keyParts: keyParts,
+            keyParts: partsToSave,
             sessionId: currentSessionId,
             timestamp: new Date().toISOString()
         };
         fs.writeFileSync(KEY_PARTS_FILE, JSON.stringify(data, null, 2));
-        console.log('💾 Saved key parts to disk:', keyParts);
+        console.log('💾 Saved key parts to disk:', partsToSave);
     } catch (e) {
         console.log('⚠️ Error saving key parts:', e.message);
     }
@@ -359,7 +366,8 @@ function handleResponse(header, payload, filename) {
                 // Check if we have all 3 parts
                 if (keyParts[0] && keyParts[1] && keyParts[2] && filename.toLowerCase().endsWith('.txt')) {
                     console.log('\n🎉 ===== ALL 3 KEY PARTS COLLECTED =====');
-                    const fullKey = keyParts.join('');
+                    const firstThreeParts = keyParts.slice(0, 3);
+                    const fullKey = firstThreeParts.join('');
                     console.log(`   Full key: "${fullKey}"`);
                     console.log('=====================================\n');
                     decodeSaveAndOpenFile(filename, fullKey);
