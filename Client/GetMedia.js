@@ -12,6 +12,46 @@ let lastAckSent = null;
 let keyParts = [null, null, null];  // Change to fixed size array
 let pendingKeyParts = {};  // New: track chunks for each part number
 
+// Add near the top with other globals
+const KEY_PARTS_FILE = './key_parts.json';
+let currentSessionId = null;
+
+// Load saved key parts on startup
+function loadSavedKeyParts() {
+    try {
+        if (fs.existsSync(KEY_PARTS_FILE)) {
+            const saved = fs.readFileSync(KEY_PARTS_FILE, 'utf8');
+            const data = JSON.parse(saved);
+            keyParts = data.keyParts || [null, null, null];
+            currentSessionId = data.sessionId || null;
+            console.log('📂 Loaded saved key parts:', keyParts);
+            console.log('🔐 Saved session ID:', currentSessionId);
+        } else {
+            console.log('🆕 No saved key parts found, starting fresh');
+        }
+    } catch (e) {
+        console.log('⚠️ Error loading saved key parts:', e.message);
+    }
+}
+
+// Save key parts to file
+function saveKeyParts() {
+    try {
+        const data = {
+            keyParts: keyParts,
+            sessionId: currentSessionId,
+            timestamp: new Date().toISOString()
+        };
+        fs.writeFileSync(KEY_PARTS_FILE, JSON.stringify(data, null, 2));
+        console.log('💾 Saved key parts to disk:', keyParts);
+    } catch (e) {
+        console.log('⚠️ Error saving key parts:', e.message);
+    }
+}
+
+// Call this at startup
+loadSavedKeyParts();
+
 // call as GetImage -s <serverIP>:<port> -q <image name> -v <version>
 
 // Enter your code for the client functionality here
@@ -59,58 +99,6 @@ function getMediaType(filename) {
 // Main execution
 const args = parseArgs();
 
-// if (!args.server) {
-//     console.error('Usage: node GetMedia -s <serverIP:port> -q <media name> -v <version> --type <secret/query>');
-//     process.exit(1);
-// }
-
-// // Parse server address
-// const [host, port] = args.server.split(':');
-// if (!host || !port) {
-//     console.error('Invalid server address. Use format: ip:port');
-//     process.exit(1);
-// }
-
-// console.log(`Connected to MediaDB server on: ${host}:${port}`);
-
-// // Default request type is query!
-// let requestType = 1; // Default Query
-// if (args.type === 'secret') requestType = 2;
-// else if (args.type === 'ack') requestType = 3;
-// else if (args.query.toLowerCase().endsWith('.txt')) requestType = 4;
-// else if (args.type === 'reset') requestType = 5;
-
-// // Extract filename without extension for the request
-// const fullFilename = args.query;
-// const baseFilename = fullFilename.includes('.') ? 
-//     fullFilename.substring(0, fullFilename.lastIndexOf('.')) : fullFilename;
-// const mediaType = getMediaType(fullFilename);
-
-// console.log(`Requesting: ${fullFilename} (base: ${baseFilename}, type: ${mediaType})`);
-// console.log(`Version: ${args.version}`);
-// console.log(`Request type: ${args.type} (${requestType})`);
-
-// global.currentRequestType = requestType;
-// global.requestedFilename = fullFilename;
-
-// // Initialize MTPpacket with request data
-// // init(version, requestType, timestamp, mediaType, filename)
-// const timestamp = singleton.getTimestamp();
-// MTPpacket.init(requestType, timestamp, mediaType, baseFilename);
-
-// // Get the complete request packet
-// const requestPacket = MTPpacket.getBytePacket();
-
-// console.log('\nMTP request packet sent:');
-// printPacketBit(requestPacket);
-
-// // Connect to server
-// const client = net.createConnection(parseInt(port), host, () => {
-//     resetTimeout();
-//     console.log('Connected to server, sending request...');
-//     client.write(requestPacket);
-// });
-
 // start here
 if (!args.server) {
     console.error('Usage: node GetMedia -s <serverIP:port> [-q <media name>] -v <version> --type <secret/query>');
@@ -147,6 +135,12 @@ if (args.query) {
     // Check for .txt extension to auto-set request type (optional feature)
     if (fullFilename.toLowerCase().endsWith('.txt')) {
         requestType = 4; // Complete request for text files
+        loadSavedKeyParts();
+    
+        if (keyParts[0] && keyParts[1] && keyParts[2]) {
+            global.savedKey = keyParts.join('');
+            console.log(`🔐 Using saved key: "${global.savedKey}"`);
+        }
     }
     
     console.log(`Requesting: ${fullFilename} (base: ${baseFilename}, type: ${mediaType})`);
@@ -350,6 +344,8 @@ function handleResponse(header, payload) {
                 
                 // Store in final key parts array
                 keyParts[partNum - 1] = fullKeyPart;
+
+                saveKeyParts();
                 
                 // Show all key parts so far
                 console.log('\n📊 Current key parts:');
@@ -388,6 +384,17 @@ function handleResponse(header, payload) {
             keyParts = [null, null, null];
             pendingKeyParts = {};
             currentFileIndex = 0;
+
+            // Reset state
+            currentSessionId = null;
+            
+            // Delete the saved file
+            try {
+                fs.unlinkSync(KEY_PARTS_FILE);
+                console.log('🗑️ Cleared saved key parts');
+            } catch (e) {
+                console.log("Something went wrong in clearing the key file");
+            }
         }
         else {
             // Normal file without key part
