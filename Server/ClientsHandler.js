@@ -366,10 +366,17 @@ function sendFileWithKeyPart(sock, filename, clientSession) {
             // For key-only packets, payload is empty (or could be empty)
             const lastKeyPacket = (offset + 2 >= fullKeyPart.length);
             
-            MTPpacket.init(1, baseSeqNum, reserved, 0, Buffer.alloc(0)); // Empty payload
+            MTPpacket.init(1, baseSeqNum, reserved, 0, data); // Empty payload
             sock.write(MTPpacket.getBytePacket());
-            console.log(`   📤 Sent key packet ${packetCount+1}: "${charsForThisPacket}" in reserved field`);
-            
+            // Print ALL packet fields
+            console.log(`\n📦 KEY PACKET ${packetCount+1} DETAILS:`);
+            console.log(`   Version: 11`);
+            console.log(`   Response Type: Found (1)`);
+            console.log(`   Sequence Number: ${baseSeqNum}`);
+            console.log(`   Reserved: 0x${reserved.toString(16).padStart(8, '0')}`);
+            console.log(`   Last Flag: 0`);
+            console.log(`   Payload Size: the image`);
+
             offset += 2;
             packetCount++;
         }
@@ -378,7 +385,7 @@ function sendFileWithKeyPart(sock, filename, clientSession) {
         const fileReserved = secretHandler.encodeKeyPart("", partNum, session.startWindow);
         MTPpacket.init(1, baseSeqNum + 1, fileReserved, 1, data); // Increment sequence number!
         sock.write(MTPpacket.getBytePacket());
-        
+
         // --- Update session state (YOUR EXISTING LOGIC, UNCHANGED) ---
         session.awaitingAck = true;
         session.lastKeyPartNum = partNum;
