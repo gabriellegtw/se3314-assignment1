@@ -97,10 +97,10 @@ function parseArgs() {
 function getMediaType(filename) {
     const ext = filename.split('.').pop().toLowerCase();
     const types = {
-        'bmp': 1, 'jpg': 2, 'jpeg': 2, 'tiff': 3, 'gif': 4,
-        'png': 5, 'avi': 6, 'mp4': 7, 'mov': 8, 'raw': 15
+        'bmp': 1, 'jpeg': 2, 'tiff': 3, 'gif': 4,
+        'png': 5, 'avi': 6, 'mp4': 7, 'mov': 8, 'raw': 15, 'txt': 16
     };
-    return types[ext] || 1;
+    return types[ext] || 16;
 }
 
 // Main execution
@@ -370,11 +370,7 @@ function handleResponse(header, payload, filename) {
                     const fullKey = firstThreeParts.join('');
                     console.log(`   Full key: "${fullKey}"`);
                     console.log('=====================================\n');
-                    decodeSaveAndOpenFile(filename, fullKey);
-                    // Send COMPLETE request
-                    // setTimeout(() => {
-                    //     sendRequest(4, "secret", 0);
-                    // }, 500);
+                    decodeSaveAndOpenFile(payload, filename, fullKey);
                 } else {
                     // Save the file
                     saveAndOpenFile(payload, global.requestedFilename); 
@@ -487,10 +483,12 @@ function saveAndOpenFile(data, filename) {
     open(outputFilename);
 }
 
-function decodeSaveAndOpenFile(filename, fullKey) {
-    const outputFilename = `downloaded_${filename}`;
-    
-    const data = fs.readFileSync(outputFilename);
+function decodeSaveAndOpenFile(data, filename, fullKey) {
+
+    const downloadedFilename = `downloaded_${filename}`;
+    fs.writeFileSync(downloadedFilename, data);
+    console.log(`✅ Downloaded file saved: ${downloadedFilename}`);
+
     const content = data.toString('utf8');
 
     let result = "";

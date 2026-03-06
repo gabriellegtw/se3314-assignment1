@@ -88,7 +88,7 @@ function processClientData(sock, buffer, clientId) {
         let fullFilename = filename;
         switch(mediaType) {
             case 1: fullFilename += ".bmp"; break;
-            case 2: fullFilename += ".jpg"; break;
+            case 2: fullFilename += ".jpeg"; break;
             case 3: fullFilename += ".tiff"; break;
             case 4: fullFilename += ".gif"; break;
             case 5: fullFilename += ".png"; break;
@@ -96,7 +96,7 @@ function processClientData(sock, buffer, clientId) {
             case 7: fullFilename += ".mp4"; break;
             case 8: fullFilename += ".mov"; break;
             case 15: fullFilename += ".raw"; break;
-            default: fullFilename += ".bin"; 
+            default: fullFilename += ".txt"; 
                 console.log(`Unknown media type: ${mediaType}`);
         }
 

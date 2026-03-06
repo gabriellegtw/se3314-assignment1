@@ -1,6 +1,5 @@
 // Some code need to be added here, that are common for the module
 let seq_num = 0;
-let timer = Math.floor(Date.now() / 1000);
 
 module.exports = {
     init: function () {
@@ -19,7 +18,7 @@ module.exports = {
     //getTimestamp: return the current timer value
     //--------------------------
     getTimestamp: function () {
-        return timer;
+        return Math.floor(Date.now() / 1000); 
     }
 }
 

@@ -2,7 +2,8 @@ const singleton = require('./Singleton');
 
 class SecretHandler {
     constructor() {
-        this.WINDOW_DURATION = 300;
+        // Make window duration 2 minutes
+        this.WINDOW_DURATION = 120;
         
         this.variants = [
             {
@@ -14,17 +15,17 @@ class SecretHandler {
             },
              {
                 id: 1,
-                key: "plzunklandsee",
-                secretFile: "secret.txt",
-                fileSequence: ["Rose.gif", "bunny.mp4", "planet.mov"],
-                riddle: "Hello! I have a secret for you. Only if you send me a Rose, a Lily, and a bunny. Send me through a flicker and we will watch the movie planet together."
+                key: "imcryingwhiledoingthis",
+                secretFile: "secret2.txt",
+                fileSequence: ["Flamingo.jpeg", "Deer.png", "Canna.gif"],
+                riddle: "Hello! I have a secret for you. Only if you send me a Flamingo.jpeg, a Deer.png, and Canna.gif."
             },
             {
                 id: 2,
-                key: "plzunklandsee",
-                secretFile: "secret.txt",
-                fileSequence: ["Rose.gif", "bunny.mp4", "planet.mov"],
-                riddle: "Hello! I have a secret for you. Only if you send me a Rose, a Lily, and a bunny. Send me through a flicker and we will watch the movie planet together."
+                key: "homeworkhomework",
+                secretFile: "secret3.txt",
+                fileSequence: ["Deer.png", "Cardinal.jpeg", "Dog.jpeg"],
+                riddle: "Hello! I have a secret for you. Only if you send me a Deer.png, Cardinal.jpeg and Dog.jpeg."
             },
         ];
     }
@@ -39,6 +40,7 @@ class SecretHandler {
         console.log("Current time: ", now); 
         const windowIndex = Math.floor(now / this.WINDOW_DURATION);
         const variantIndex = windowIndex % this.variants.length;
+        console.log("Current variant: ", variantIndex); 
         
         // Return the variant with additional window info
         return {
