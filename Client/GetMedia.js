@@ -1,17 +1,18 @@
 let net = require("net");
 let fs = require("fs");
 let open = require("open");
-let MTPpacket = require("./MTPRequest"),// uncomment this line after you run npm install command
+let MTPpacket = require("./MTPRequest"),
 
 singleton = require("./Singleton");
 
 let responseTimeout = null;
 let lastAckSent = null;
 
-let keyParts = [null, null, null];  // Change to fixed size array
-let pendingKeyParts = {};  // New: track chunks for each part number
+let keyParts = [null, null, null];
+let pendingKeyParts = {};
 
-// Add near the top with other globals
+// File for the client to store keys within the same session
+// Used global array at first but didn't work
 const KEY_PARTS_FILE = './key_parts.json';
 let currentSessionId = null;
 
@@ -58,15 +59,6 @@ function saveKeyParts() {
 // Call this at startup
 loadSavedKeyParts();
 
-// call as GetImage -s <serverIP>:<port> -q <image name> -v <version>
-
-// Enter your code for the client functionality here
-// You should connect to the server and send the request packet
-// You should receive the response packet from the server
-// You should print the response packet in bits format
-// You should extract the media data from the response packet
-// You should save the image data to a file
-
 // Parse command line arguments
 function parseArgs() {
     const args = process.argv.slice(2);
@@ -93,6 +85,8 @@ function parseArgs() {
 }
 
 // Get media type from filename extension
+// Type 19 added for the client to know what file type to download as 
+// When it requests for secret file
 function getMediaType(filename) {
     const ext = filename.split('.').pop().toLowerCase();
     const types = {
@@ -105,7 +99,6 @@ function getMediaType(filename) {
 // Main execution
 const args = parseArgs();
 
-// start here
 if (!args.server) {
     console.error('Usage: node GetMedia -s <serverIP:port> [-q <media name>] -v <version> --type <secret/query>');
     process.exit(1);
@@ -138,7 +131,7 @@ if (args.query) {
         fullFilename.substring(0, fullFilename.lastIndexOf('.')) : fullFilename;
     mediaType = getMediaType(fullFilename);
     
-    // Check for .txt extension to auto-set request type (optional feature)
+    // Send a response with request type 4 (complete) if we are requesting a .txt file
     if (fullFilename.toLowerCase().endsWith('.txt')) {
         requestType = 4;
         loadSavedKeyParts();
@@ -166,6 +159,7 @@ if (args.query) {
 // console.log(`Request type: ${args.type} (${requestType})`);
 
 global.currentRequestType = requestType;
+// "secret_session" is just a place holder name
 global.requestedFilename = fullFilename || "secret_session";
 
 // Initialize MTPpacket with request data
@@ -297,7 +291,6 @@ function parseResponseHeader(buffer) {
     };
 }
 
-// // REPLACE your entire existing handleResponse function with this
 function handleResponse(header, payload, filename) {
     // console.log('\n HANDLE RESPONSE DEBUG:');
     // console.log(`   responseType: ${header.responseType}`);
@@ -361,6 +354,7 @@ function handleResponse(header, payload, filename) {
                 sendAck(header.reserved);
                 
                 // Check if we have all 3 parts
+                // Only if three key parts are there then we can open the file
                 if (keyParts[0] && keyParts[1] && keyParts[2] && filename.toLowerCase().endsWith('.txt')) {
                     const firstThreeParts = keyParts.slice(0, 3);
                     const fullKey = firstThreeParts.join('');
@@ -397,7 +391,7 @@ function handleResponse(header, payload, filename) {
         }
     } else if (header.responseType === 2) { // Not Found
         if (payload.length > 0) {
-            console.log('Error message:', payload.toString());
+            console.log('Message from server:', payload.toString());
         }
     } else if (header.responseType === 3) { // Busy
         console.log('\n⏳ Server is busy');
@@ -442,11 +436,6 @@ function decodeReserved(reserved) {
         partNum: (reserved >> 8) & 0xFF,   // partNum is in bits 8-15
         windowId: reserved & 0xFF           // windowId is in bits 0-7
     };
-}
-
-function getResponseTypeName(type) {
-    const types = ['Query', 'Found', 'Not Found', 'Busy'];
-    return types[type] || 'Unknown';
 }
 
 function saveAndOpenFile(data, filename) {
@@ -502,7 +491,6 @@ function decodeSaveAndOpenFile(data, filename, fullKey) {
     open(decryptedFilename);
 }
 
-//some helper functions
 // return integer value of the extracted bits fragment
 function parseBitPacket(packet, offset, length) {
   let number = "";
@@ -546,17 +534,17 @@ function resetTimeout() {
     
     // Set new timeout
     responseTimeout = setTimeout(() => {
-        console.log('\n⏰ TIMEOUT CHECK:');
+        console.log('\n TIMEOUT CHECK:');
         console.log('   Response Header: ', responseHeader);
         console.log('   fileData length: ', fileData.length);
         console.log('   packetsReceived: ', packetsReceived);
         
         // Only timeout if we're not in interactive mode waiting for input
         if (!responseHeader && fileData.length === 0 && packetsReceived === 0) {
-            console.log('\n❌ Timeout: No response received');
+            console.log('\n Timeout: No response received');
             client.end();
         } else {
-            console.log('   ✅ Not timing out - activity detected');
+            console.log('Not timing out - activity detected');
         }
     }, 30000); // 30 seconds
 }
