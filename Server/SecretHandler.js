@@ -179,42 +179,6 @@ class SecretHandler {
         return keyParts.join('');
     }
     
-    // Maybe to be deleted
-    /**
-     * Validate that all required files exist
-     * Call this during server startup
-     * @param {Object} fs - Node.js fs module
-     * @param {string} imagesPath - Path to images folder
-     * @returns {Array} List of missing files
-     */
-    validateFiles(fs, path, imagesPath) {
-        const allFiles = [];
-        const missing = [];
-        
-        // Collect all required files
-        this.variants.forEach(variant => {
-            allFiles.push(variant.secretFile);
-            variant.fileSequence.forEach(file => allFiles.push(file));
-        });
-        
-        // Check each file
-        allFiles.forEach(file => {
-            const filePath = path.join(imagesPath, file);
-            if (!fs.existsSync(filePath)) {
-                missing.push(file);
-            }
-        });
-        
-        if (missing.length > 0) {
-            console.warn('⚠️ Warning: Missing secret session files:');
-            missing.forEach(f => console.warn(`   - ${f}`));
-        } else {
-            console.log('✅ All secret session files found');
-        }
-        
-        return missing;
-    }
-    
     /**
      * Get a human-readable description of a variant
      * @param {number} variantId - Variant ID (0, 1, or 2)

@@ -1,18 +1,18 @@
 let net = require("net");
 let fs = require("fs");
 let open = require("open");
-let MTPpacket = require("./MTPRequest"),// uncomment this line after you run npm install command
+let MTPpacket = require("./MTPRequest"),
 
 singleton = require("./Singleton");
-console.log('🔧 INITIALIZING keyParts array at:', new Date().toISOString());
-// let keyParts = []; 
+
 let responseTimeout = null;
 let lastAckSent = null;
 
-let keyParts = [null, null, null];  // Change to fixed size array
-let pendingKeyParts = {};  // New: track chunks for each part number
+let keyParts = [null, null, null];
+let pendingKeyParts = {};
 
-// Add near the top with other globals
+// File for the client to store keys within the same session
+// Used global array at first but didn't work
 const KEY_PARTS_FILE = './key_parts.json';
 let currentSessionId = null;
 
@@ -30,13 +30,13 @@ function loadSavedKeyParts() {
                 }
             }
             currentSessionId = data.sessionId || null;
-            console.log('📂 Loaded saved key parts:', keyParts);
-            console.log('🔐 Saved session ID:', currentSessionId);
+            // console.log('Loaded saved key parts:', keyParts);
+            // console.log('Saved session ID:', currentSessionId);
         } else {
-            console.log('🆕 No saved key parts found, starting fresh');
+            console.log('No saved key parts found, starting fresh');
         }
     } catch (e) {
-        console.log('⚠️ Error loading saved key parts:', e.message);
+        console.log('Error loading saved key parts:', e.message);
     }
 }
 
@@ -50,23 +50,14 @@ function saveKeyParts() {
             timestamp: new Date().toISOString()
         };
         fs.writeFileSync(KEY_PARTS_FILE, JSON.stringify(data, null, 2));
-        console.log('💾 Saved key parts to disk:', partsToSave);
+        // console.log('Saved key parts to disk:', partsToSave);
     } catch (e) {
-        console.log('⚠️ Error saving key parts:', e.message);
+        console.log('Error saving key parts:', e.message);
     }
 }
 
 // Call this at startup
 loadSavedKeyParts();
-
-// call as GetImage -s <serverIP>:<port> -q <image name> -v <version>
-
-// Enter your code for the client functionality here
-// You should connect to the server and send the request packet
-// You should receive the response packet from the server
-// You should print the response packet in bits format
-// You should extract the media data from the response packet
-// You should save the image data to a file
 
 // Parse command line arguments
 function parseArgs() {
@@ -94,6 +85,8 @@ function parseArgs() {
 }
 
 // Get media type from filename extension
+// Type 19 added for the client to know what file type to download as 
+// When it requests for secret file
 function getMediaType(filename) {
     const ext = filename.split('.').pop().toLowerCase();
     const types = {
@@ -106,7 +99,6 @@ function getMediaType(filename) {
 // Main execution
 const args = parseArgs();
 
-// start here
 if (!args.server) {
     console.error('Usage: node GetMedia -s <serverIP:port> [-q <media name>] -v <version> --type <secret/query>');
     process.exit(1);
@@ -139,14 +131,14 @@ if (args.query) {
         fullFilename.substring(0, fullFilename.lastIndexOf('.')) : fullFilename;
     mediaType = getMediaType(fullFilename);
     
-    // Check for .txt extension to auto-set request type (optional feature)
+    // Send a response with request type 4 (complete) if we are requesting a .txt file
     if (fullFilename.toLowerCase().endsWith('.txt')) {
-        requestType = 4; // Complete request for text files
+        requestType = 4;
         loadSavedKeyParts();
     
         if (keyParts[0] && keyParts[1] && keyParts[2]) {
             global.savedKey = keyParts.join('');
-            console.log(`🔐 Using saved key: "${global.savedKey}"`);
+            console.log(`Using saved key: "${global.savedKey}"`);
         }
     }
     
@@ -163,10 +155,11 @@ if (args.query) {
     process.exit(1);
 }
 
-console.log(`Version: ${args.version}`);
-console.log(`Request type: ${args.type} (${requestType})`);
+// console.log(`Version: ${args.version}`);
+// console.log(`Request type: ${args.type} (${requestType})`);
 
 global.currentRequestType = requestType;
+// "secret_session" is just a place holder name
 global.requestedFilename = fullFilename || "secret_session";
 
 // Initialize MTPpacket with request data
@@ -176,7 +169,7 @@ MTPpacket.init(requestType, timestamp, mediaType, baseFilename);
 // Get the complete request packet
 const requestPacket = MTPpacket.getBytePacket();
 
-console.log('\nMTP request packet sent:');
+// console.log('\nMTP request packet sent:');
 printPacketBit(requestPacket);
 
 // Connect to server
@@ -185,7 +178,6 @@ const client = net.createConnection(parseInt(port), host, () => {
     console.log('Connected to server, sending request...');
     client.write(requestPacket);
 });
-// end here
 
 // Response handling
 let responseBuffer = Buffer.alloc(0);
@@ -206,15 +198,15 @@ client.on('data', (data) => {
             // Parse header
             responseHeader = parseResponseHeader(responseBuffer);
             
-            console.log('\nMTP packet header received:');
+            // console.log('\nMTP packet header received:');
             printPacketBit(responseBuffer.slice(0, 12));
             
-            console.log('\nServer sent:');
-            console.log(`--MTP version = ${responseHeader.version}`);
-            console.log(`--Response Type = ${getResponseTypeName(responseHeader.responseType)}`);
-            console.log(`--Sequence Number = ${responseHeader.sequenceNum}`);
-            console.log(`--Last Flag = ${responseHeader.lastFlag}`);
-            console.log(`--Payload Size = ${responseHeader.payloadSize} bytes`);
+            // console.log('\nServer sent:');
+            // console.log(`--MTP version = ${responseHeader.version}`);
+            // console.log(`--Response Type = ${getResponseTypeName(responseHeader.responseType)}`);
+            // console.log(`--Sequence Number = ${responseHeader.sequenceNum}`);
+            // console.log(`--Last Flag = ${responseHeader.lastFlag}`);
+            // console.log(`--Payload Size = ${responseHeader.payloadSize} bytes`);
             
             expectedPayloadSize = responseHeader.payloadSize;
             
@@ -299,13 +291,12 @@ function parseResponseHeader(buffer) {
     };
 }
 
-// // REPLACE your entire existing handleResponse function with this
 function handleResponse(header, payload, filename) {
-    console.log('\n🔍 HANDLE RESPONSE DEBUG:');
-    console.log(`   responseType: ${header.responseType}`);
-    console.log(`   reserved: 0x${header.reserved.toString(16).padStart(8, '0')}`);
-    console.log(`   sequenceNum: ${header.sequenceNum}`);
-    console.log(`   lastFlag: ${header.lastFlag}`);
+    // console.log('\n HANDLE RESPONSE DEBUG:');
+    // console.log(`   responseType: ${header.responseType}`);
+    // console.log(`   reserved: 0x${header.reserved.toString(16).padStart(8, '0')}`);
+    // console.log(`   sequenceNum: ${header.sequenceNum}`);
+    // console.log(`   lastFlag: ${header.lastFlag}`);
     
     if (header.responseType === 1) { // Found
         
@@ -318,10 +309,10 @@ function handleResponse(header, payload, filename) {
             const partNum = decoded.partNum;
             const chars = (decoded.char1 + decoded.char2).replace(/\0/g, '');
             
-            console.log(`\n🔑 Packet decoded:`);
-            console.log(`   Part Number: ${partNum}`);
-            console.log(`   Window ID: ${decoded.windowId}`);
-            console.log(`   Characters: "${chars}"`);
+            // console.log(`\nPacket decoded:`);
+            // console.log(`   Part Number: ${partNum}`);
+            // console.log(`   Window ID: ${decoded.windowId}`);
+            // console.log(`   Characters: "${chars}"`);
             
             // Initialize storage for this part if needed
             if (!pendingKeyParts[partNum]) {
@@ -330,46 +321,44 @@ function handleResponse(header, payload, filename) {
                     packetCount: 0,    // Number of packets received
                     fileData: null     // Will store file when received
                 };
-                console.log(`   🆕 Started tracking part ${partNum}`);
+                console.log(`Started tracking part ${partNum}`);
             }
             
             // Store non-null characters
             if (chars.length > 0) {
                 pendingKeyParts[partNum].chunks.push(chars);
                 pendingKeyParts[partNum].packetCount++;
-                console.log(`   📦 Stored chunk: "${chars}" (total chunks: ${pendingKeyParts[partNum].chunks.length})`);
+                // console.log(`Stored chunk: "${chars}" (total chunks: ${pendingKeyParts[partNum].chunks.length})`);
             }
             
             // If this is the last packet (has payload and lastFlag=1)
             if (header.lastFlag === 1 && payload.length > 0) {
-                console.log(`\n📁 Received file data (${payload.length} bytes)`);
+                // console.log(`\nReceived file data (${payload.length} bytes)`);
                 pendingKeyParts[partNum].fileData = payload;
                 
                 // Reconstruct the full key part from all stored chunks
                 const fullKeyPart = pendingKeyParts[partNum].chunks.join('');
-                console.log(`\n✅ Reconstructed key part ${partNum}: "${fullKeyPart}"`);
+                // console.log(`\nReconstructed key part ${partNum}: "${fullKeyPart}"`);
                 
                 // Store in final key parts array
                 keyParts[partNum - 1] = fullKeyPart;
 
                 saveKeyParts();
                 
-                // Show all key parts so far
-                console.log('\n📊 Current key parts:');
-                keyParts.forEach((part, i) => {
-                    console.log(`   Part ${i+1}: ${part ? `"${part}"` : '[missing]'}`);
-                });
+                // console.log('\nCurrent key parts:');
+                // keyParts.forEach((part, i) => {
+                //     console.log(`   Part ${i+1}: ${part ? `"${part}"` : '[missing]'}`);
+                // });
                 
                 // Send ACK for this part
                 sendAck(header.reserved);
                 
                 // Check if we have all 3 parts
+                // Only if three key parts are there then we can open the file
                 if (keyParts[0] && keyParts[1] && keyParts[2] && filename.toLowerCase().endsWith('.txt')) {
-                    console.log('\n🎉 ===== ALL 3 KEY PARTS COLLECTED =====');
                     const firstThreeParts = keyParts.slice(0, 3);
                     const fullKey = firstThreeParts.join('');
-                    console.log(`   Full key: "${fullKey}"`);
-                    console.log('=====================================\n');
+                    console.log(`Key part received: "${fullKey}"`);
                     decodeSaveAndOpenFile(payload, filename, fullKey);
                 } else {
                     // Save the file
@@ -379,10 +368,7 @@ function handleResponse(header, payload, filename) {
         } 
         else if (global.currentRequestType === 2) {
             // This was a SECRET request - response is a RIDDLE
-            console.log('\n📜 ===== RIDDLE RECEIVED =====');
             console.log(payload.toString());
-            console.log('============================\n');
-            console.log('Automatically requesting files in order:');
             
             // Reset state for new secret session
             keyParts = [null, null, null];
@@ -395,9 +381,8 @@ function handleResponse(header, payload, filename) {
             // Delete the saved file
             try {
                 fs.unlinkSync(KEY_PARTS_FILE);
-                console.log('🗑️ Cleared saved key parts');
             } catch (e) {
-                console.log("Something went wrong in clearing the key file");
+                console.log("Key file is already blank");
             }
         }
         else {
@@ -405,9 +390,8 @@ function handleResponse(header, payload, filename) {
             saveAndOpenFile(payload, global.requestedFilename);
         }
     } else if (header.responseType === 2) { // Not Found
-        console.log('\n❌ File not found on server');
         if (payload.length > 0) {
-            console.log('Error message:', payload.toString());
+            console.log('Message from server:', payload.toString());
         }
     } else if (header.responseType === 3) { // Busy
         console.log('\n⏳ Server is busy');
@@ -417,14 +401,13 @@ function handleResponse(header, payload, filename) {
 // New function to send ACK automatically
 // Replace your entire sendAck function with this:
 function sendAck(reservedValue) {
-    console.log('\n📨 ===== SENDING ACK =====');
-    console.log(`   Reserved value to echo: 0x${reservedValue.toString(16)}`);
+    // console.log(`   Reserved value to echo: 0x${reservedValue.toString(16)}`);
     
     const timestamp = singleton.getTimestamp();
     MTPpacket.init(3, timestamp, 0, "");
     
     let ackPacket = MTPpacket.getBytePacket();
-    console.log('   Original packet:', ackPacket.slice(0,12).toString('hex'));
+    // console.log('   Original packet:', ackPacket.slice(0,12).toString('hex'));
     
     // Set reserved field
     ackPacket[4] = (reservedValue >> 24) & 0xFF;
@@ -432,12 +415,10 @@ function sendAck(reservedValue) {
     ackPacket[6] = (reservedValue >> 8) & 0xFF;
     ackPacket[7] = reservedValue & 0xFF;
     
-    console.log('   Modified packet: ', ackPacket.slice(0,12).toString('hex'));
-    console.log('   Sending ACK...');
+    // console.log('   Modified packet: ', ackPacket.slice(0,12).toString('hex'));
     
     client.write(ackPacket);
-    console.log('✅ ACK sent');
-    console.log('========================\n');
+    console.log('ACK sent');
 
     // Remember that we sent this ACK
     lastAckSent = reservedValue;
@@ -448,16 +429,6 @@ function sendAck(reservedValue) {
     }, 1000);
 }
 
-// Helper to decode reserved field
-// function decodeReserved(reserved) {
-//     return {
-//         char1: (reserved >> 24) & 0xFF,
-//         char2: (reserved >> 16) & 0xFF,
-//         partNum: (reserved >> 8) & 0xFF,
-//         windowId: reserved & 0xFF
-//     };
-// }
-
 function decodeReserved(reserved) {
     return {
         char1: String.fromCharCode((reserved >> 24) & 0xFF),
@@ -467,19 +438,13 @@ function decodeReserved(reserved) {
     };
 }
 
-function getResponseTypeName(type) {
-    const types = ['Query', 'Found', 'Not Found', 'Busy'];
-    return types[type] || 'Unknown';
-}
-
 function saveAndOpenFile(data, filename) {
     const outputFilename = `downloaded_${filename}`;
     
     fs.writeFileSync(outputFilename, data);
-    console.log(`\n✅ File saved as: ${outputFilename} (${data.length} bytes)`);
+    // console.log(`\nFile saved as: ${outputFilename} (${data.length} bytes)`);
     
     // Open with default viewer
-    console.log('Opening with default viewer...');
     open(outputFilename);
 }
 
@@ -487,7 +452,7 @@ function decodeSaveAndOpenFile(data, filename, fullKey) {
 
     const downloadedFilename = `downloaded_${filename}`;
     fs.writeFileSync(downloadedFilename, data);
-    console.log(`✅ Downloaded file saved: ${downloadedFilename}`);
+    console.log(`Downloaded file saved: ${downloadedFilename}`);
 
     const content = data.toString('utf8');
 
@@ -526,7 +491,6 @@ function decodeSaveAndOpenFile(data, filename, fullKey) {
     open(decryptedFilename);
 }
 
-//some helper functions
 // return integer value of the extracted bits fragment
 function parseBitPacket(packet, offset, length) {
   let number = "";
@@ -561,72 +525,6 @@ function bytes2string(array) {
   return result;
 }
 
-// ============= INTERACTIVE MODE =============
-// If this was a secret session start, enter interactive mode
-// if (args.type === 'secret') {
-//     // Wait a bit for the riddle to be processed
-//     setTimeout(() => {
-//         startInteractiveMode();
-//     }, 500);
-// }
-
-function startInteractiveMode() {
-    const readline = require('readline');
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-    });
-    
-    console.log('\n🔐 SECRET SESSION ACTIVE - Connection kept alive');
-    console.log('Enter commands:');
-    console.log('  - Type a filename (e.g., Rose.gif) to request it');
-    console.log('  - Type "complete" to request the secret file');
-    console.log('  - Type "exit" to quit\n');
-    
-    rl.on('line', (input) => {
-        input = input.trim();
-        
-        if (input === 'exit') {
-            console.log('Exiting...');
-            client.end();
-            rl.close();
-            return;
-        }
-        
-        if (input === 'complete') {
-            console.log('📦 Sending COMPLETE request...');
-            sendRequest(4, "", 0);  // type=4 for Complete
-        } else {
-            // Send query for file
-            const baseName = input.includes('.') ? 
-                input.substring(0, input.lastIndexOf('.')) : input;
-            const mediaType = getMediaType(input);
-            console.log(`📁 Requesting file: ${input}`);
-            sendRequest(1, baseName, mediaType);  // type=1 for Query
-        }
-    });
-    
-    // Handle client disconnect
-    client.on('end', () => {
-        console.log('\nConnection closed by server');
-        rl.close();
-        process.exit(0);
-    });
-}
-
-// Helper function to send requests
-function sendRequest(type, filename, mediaTypeValue) {
-    const timestamp = singleton.getTimestamp();
-
-    resetTimeout();
-    // Re-initialize MTPpacket with new request
-    MTPpacket.init(type, timestamp, mediaTypeValue, filename);
-    const packet = MTPpacket.getBytePacket();
-    
-    console.log('Sending request...');
-    client.write(packet);
-}
-
 function resetTimeout() {
     // Clear existing timeout
     if (responseTimeout) {
@@ -636,17 +534,17 @@ function resetTimeout() {
     
     // Set new timeout
     responseTimeout = setTimeout(() => {
-        console.log('\n⏰ TIMEOUT CHECK:');
+        console.log('\n TIMEOUT CHECK:');
         console.log('   Response Header: ', responseHeader);
         console.log('   fileData length: ', fileData.length);
         console.log('   packetsReceived: ', packetsReceived);
         
         // Only timeout if we're not in interactive mode waiting for input
         if (!responseHeader && fileData.length === 0 && packetsReceived === 0) {
-            console.log('\n❌ Timeout: No response received');
+            console.log('\n Timeout: No response received');
             client.end();
         } else {
-            console.log('   ✅ Not timing out - activity detected');
+            console.log('Not timing out - activity detected');
         }
     }, 30000); // 30 seconds
 }

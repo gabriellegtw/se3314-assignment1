@@ -4,7 +4,6 @@ var path = require('path');
 var fs = require('fs');
 var SecretHandler = require('./SecretHandler');
 
-// You need to add some statements here
 // Since header is 12 bytes
 const HEADER_SIZE = 12;
 const secretHandler = new SecretHandler();
@@ -12,7 +11,7 @@ const clientSessions = {};
 
 module.exports = {
   handleClientJoining: function (sock) {
-    const clientId = sock.remoteAddress; // Use IP address instead of port
+    const clientId = sock.remoteAddress;
     console.log(`Client ${clientId} connected`);
     
     // Get or create session for this client
@@ -26,13 +25,11 @@ module.exports = {
     
     sock.on('data', (data) => {
         clientBuffer = Buffer.concat([clientBuffer, data]);
-        processClientData(sock, clientBuffer, clientId); // Pass ID, not session
+        processClientData(sock, clientBuffer, clientId);
     });
     
     sock.on('close', () => {
         console.log(`Client ${clientId} closed connection`);
-        // Optionally keep session or delete after timeout
-        // delete clientSessions[clientId];
     });
     
     sock.on('error', (err) => {
@@ -41,10 +38,6 @@ module.exports = {
   }
 
 };
-
-function handleClientLeaving(sock) {
-  console.log(`Client ${sock.remotePort} closed connection`);
-}
 
 function processClientData(sock, buffer, clientId) {
     const clientSession = clientSessions[clientId];
@@ -96,17 +89,16 @@ function processClientData(sock, buffer, clientId) {
             case 7: fullFilename += ".mp4"; break;
             case 8: fullFilename += ".mov"; break;
             case 15: fullFilename += ".raw"; break;
-            default: fullFilename += ".txt"; 
-                console.log(`Unknown media type: ${mediaType}`);
+            default: fullFilename += ".txt";
         }
 
-        // Log the request (as required by assignment)
+        // Log the request
         console.log(`\nClient-${sock.remotePort} requests:`);
         console.log(`- MTP version: ${version}`);
         console.log(`- Request type: ${getRequestTypeName(requestType)}`);
         console.log(`- Media file name: ${fullFilename}`);
         
-        // Print packet in bits format (required)
+        // Print packet in bits format
         console.log('MTP packet received:');
         printPacketBit(buffer.slice(0, HEADER_SIZE + filenameSize));
         
@@ -167,13 +159,13 @@ function handleQuery(sock, filename, clientSession) {
     // Check if this client has an active secret session
     if (clientSession.secretSession && !clientSession.secretSession.complete) {
         // This is a secret session file request
-        console.log(`🔐 Secret session file request: ${filename}`);
+        console.log(`Secret session file request: ${filename}`);
         handleSecretFileRequest(sock, filename, clientSession);
         return;
     }
     
     // Normal query handling
-    console.log(`📁 Normal query for: ${filename}`);
+    console.log(`Normal query for: ${filename}`);
     const imagePath = path.join(__dirname, 'images', filename);
     
     fs.access(imagePath, fs.constants.F_OK, (err) => {
@@ -192,136 +184,57 @@ function handleSecretFileRequest(sock, filename, clientSession) {
     const session = clientSession.secretSession;
     
     if (!session) {
-        console.log(`   ❌ No active session`);
         sendError(sock, "No active secret session");
         return;
     }
     
-    console.log(`\n🔑 Secret file request: ${filename}`);
+    console.log(`\nSecret file request: ${filename}`);
     
-    // ===== CHECK 1: Window validity =====
+    // Check if window is valid
     if (!secretHandler.isWindowValid(session.startWindow)) {
-        console.log(`   ❌ Session expired - window changed`);
+        console.log(`Session expired - window changed`);
         sendError(sock, "Session expired - time window changed");
         clientSession.secretSession = null;
         return;
     }
     
-    // ===== CHECK 2: Waiting for ACK? =====
+    // If waiting for ACK
     if (session.awaitingAck) {
-        console.log(`   ❌ Must send ACK first (waiting for part ${session.lastKeyPartNum})`);
-        sendError(sock, `Must send ACK for part ${session.lastKeyPartNum} first`);
+        // console.log(`Must send ACK first (waiting for part ${session.lastKeyPartNum})`);
+        // sendError(sock, `Must send ACK for part ${session.lastKeyPartNum} first`);
+        console.log("Waiitng for ACK...");
         return;
     }
     
-    // ===== CHECK 3: All files already requested? =====
+    // Check if all files are already requested, ready to send complete request
     if (session.nextFileIndex >= 3) {
-        console.log(`   ❌ All files already requested`);
+        console.log(`All files already requested`);
         sendError(sock, "All secret files already received. Send COMPLETE request.");
         return;
     }
     
-    // ===== CHECK 4: Correct file order? =====
+    // Check if the file order is correct
     const expectedFile = session.expectedFiles[session.nextFileIndex];
     if (filename !== expectedFile) {
-        console.log(`   ❌ Wrong file order! Expected ${expectedFile}, got ${filename}`);
+        console.log(`Wrong file order! Expected ${expectedFile}, got ${filename}`);
         sendError(sock, `Wrong file sequence. Expected ${expectedFile}`);
         // Wrong order kills the session
         clientSession.secretSession = null;
         return;
     }
     
-    // ===== All checks passed - send file with key part =====
-    console.log(`   ✅ Correct file! Sending with key part ${session.nextFileIndex + 1}`);
+    // All checks passed - send file with key part
+    console.log(`Correct file! Sending with key part ${session.nextFileIndex + 1}`);
     session.awaitingAck = true;
     sendFileWithKeyPart(sock, filename, clientSession);
 }
-
-// function sendFileWithKeyPart(sock, filename, clientSession) {
-//     const session = clientSession.secretSession;
-//     const fileIndex = session.nextFileIndex;
-//     const partNum = fileIndex + 1; // 1, 2, or 3
-
-//     // if (!session || !session.awaitingQuery) {
-//     //     console.log(`   ⚠️ Preventing automatic resend of ${filename}`);
-//     //     return;
-//     // }
-
-//     // 🔴 GUARD 1: Check if this file should be sent now
-//     if (filename !== session.expectedFiles[fileIndex]) {
-//         console.log(`   ⚠️ Not sending ${filename} - not the current expected file`);
-//         return;
-//     }
-    
-//     // 🔴 GUARD 2: Check if this file was already sent
-//     // if (session.fileSent[fileIndex]) {
-//     //     console.log(`   ⚠️ File ${filename} already sent, ignoring duplicate call`);
-//     //     return;
-//     // }
-    
-//     // Split the key and get the right part
-//     const keyParts = secretHandler.splitKey(session.variant.key);
-//     const keyPart = keyParts[fileIndex];
-    
-//     console.log(`   🔑 Sending key part ${partNum}/3: "${keyPart}"`);
-    
-//     // Encode in reserved field
-//     const reserved = secretHandler.encodeKeyPart(
-//         keyPart,
-//         partNum,
-//         session.startWindow
-//     );
-
-//     console.log(`   📦 Reserved field: 0x${reserved.toString(16)}`);
-    
-//     // Path to the file
-//     const filePath = path.join(__dirname, 'images', filename);
-    
-//     // Read and send the file
-//     fs.readFile(filePath, (err, data) => {
-//         if (err) {
-//             console.log(`   ❌ Error reading file: ${err.message}`);
-//             sendNotFound(sock);
-//             return;
-//         }
-        
-//         // Get sequence number
-//         let seqNum = singleton.getSequenceNumber();
-        
-//         // Send MTP packet with key part in reserved field
-//         // type=1 (Found), seqNum, reserved, lastFlag=1, payload=data
-//         MTPpacket.init(1, seqNum, reserved, 1, data);
-//         var packet = MTPpacket.getBytePacket();
-//         sock.write(packet);
-//         console.log(`   📤 Packet reserved bytes: ${packet[4].toString(16)} ${packet[5].toString(16)} ${packet[6].toString(16)} ${packet[7].toString(16)}`);
-//         console.log(`   ✅ Sent ${filename} (${data.length} bytes) with key part ${partNum}`);
-//         // prints til here
-//         // Update session state - now waiting for ACK
-//         session.awaitingAck = true;
-//         session.lastKeyPartNum = partNum;
-//         session.keyParts[fileIndex] = keyPart;
-        
-//         // Set timeout for ACK (30 seconds)
-//         if (session.ackTimeout) {
-//             clearTimeout(session.ackTimeout);
-//         }
-        
-//         session.ackTimeout = setTimeout(() => {
-//             if (session.awaitingAck && session.lastKeyPartNum === partNum) {
-//                 console.log(`   ⏰ ACK timeout for client ${sock.remotePort}, part ${partNum}`);
-//                 sendError(sock, "ACK timeout - session reset");
-//                 clientSession.secretSession = null;
-//             }
-//         }, 30000);
-//     });
-// }
 
 function sendFileWithKeyPart(sock, filename, clientSession) {
     const session = clientSession.secretSession;
     const fileIndex = session.nextFileIndex;
     const partNum = fileIndex + 1; // 1, 2, or 3
 
-    // 🔴 GUARD 1: Check if this file should be sent now
+    // Check if this file should be sent now
     if (filename !== session.expectedFiles[fileIndex]) {
         console.log(`   ⚠️ Not sending ${filename} - not the current expected file`);
         return;
@@ -329,9 +242,9 @@ function sendFileWithKeyPart(sock, filename, clientSession) {
     
     // Split the key and get the right part
     const keyParts = secretHandler.splitKey(session.variant.key);
-    const keyPart = keyParts[fileIndex]; // FULL key part like "kland"
+    const keyPart = keyParts[fileIndex];
     
-    console.log(`   🔑 Sending key part ${partNum}/3: "${keyPart}"`);
+    console.log(`Sending key part ${partNum}/3: "${keyPart}"`);
     
     // Path to the file
     const filePath = path.join(__dirname, 'images', filename);
@@ -339,7 +252,7 @@ function sendFileWithKeyPart(sock, filename, clientSession) {
     // Read and send the file
     fs.readFile(filePath, (err, data) => {
         if (err) {
-            console.log(`   ❌ Error reading file: ${err.message}`);
+            console.log(`Error reading file: ${err.message}`);
             sendNotFound(sock);
             return;
         }
@@ -347,8 +260,8 @@ function sendFileWithKeyPart(sock, filename, clientSession) {
         // Get sequence number - ALL packets for this key part use SAME sequence
         const baseSeqNum = singleton.getSequenceNumber();
         
-        // --- CORRECT: Send ALL key characters in reserved field ---
-        const fullKeyPart = keyPart; // "kland"
+        // Send ALL key characters in reserved field
+        const fullKeyPart = keyPart;
         let offset = 0;
         let packetCount = 0;
 
@@ -369,7 +282,7 @@ function sendFileWithKeyPart(sock, filename, clientSession) {
             MTPpacket.init(1, baseSeqNum, reserved, 0, data); // Empty payload
             sock.write(MTPpacket.getBytePacket());
             // Print ALL packet fields
-            console.log(`\n📦 KEY PACKET ${packetCount+1} DETAILS:`);
+            console.log(`\nKEY PACKET ${packetCount+1} DETAILS:`);
             console.log(`   Version: 11`);
             console.log(`   Response Type: Found (1)`);
             console.log(`   Sequence Number: ${baseSeqNum}`);
@@ -398,7 +311,7 @@ function sendFileWithKeyPart(sock, filename, clientSession) {
         
         session.ackTimeout = setTimeout(() => {
             if (session.awaitingAck && session.lastKeyPartNum === partNum) {
-                console.log(`   ⏰ ACK timeout for client ${sock.remotePort}, part ${partNum}`);
+                console.log(`ACK timeout for client ${sock.remotePort}, part ${partNum}`);
                 sendError(sock, "ACK timeout - session reset");
                 clientSession.secretSession = null;
             }
@@ -406,7 +319,7 @@ function sendFileWithKeyPart(sock, filename, clientSession) {
     });
 }
 
-// Rename your existing sendFile to sendNormalFile for clarity
+// This is for the normal query
 function sendNormalFile(sock, filePath, displayName) {
     fs.readFile(filePath, (err, data) => {
         if (err) {
@@ -419,24 +332,24 @@ function sendNormalFile(sock, filePath, displayName) {
         MTPpacket.init(1, seqNum, 0, 1, data);
         sock.write(MTPpacket.getBytePacket());
         
-        console.log(`   ✅ Sent ${displayName} (${data.length} bytes)`);
+        console.log(`Sent ${displayName} (${data.length} bytes)`);
     });
 }
 
 function handleSecret(sock, clientId) {
     const clientSession = clientSessions[clientId];
-    console.log(`\n🔐 Secret request from client ${sock.remotePort}`);
+    console.log(`\n Secret request from client ${sock.remotePort}`);
     
-    // ===== STEP 1: Get current variant from SecretHandler =====
+    // Step 1: Get current variant from SecretHandler
     const variant = secretHandler.getCurrentVariant();
     
-    // console.log(`   📊 Current time window: ${variant.windowId}`);
-    // console.log(`   🆔 Variant ID: ${variant.id}`);
-    // console.log(`   🔑 Key: ${variant.key}`);
+    // console.log(`Current time window: ${variant.windowId}`);
+    // console.log(`Variant ID: ${variant.id}`);
+    // console.log(`Key: ${variant.key}`);
     console.log(`${variant.riddle}`);
-    // console.log(`   📁 File sequence: ${variant.fileSequence.join(' → ')}`);
+    // console.log(`File sequence: ${variant.fileSequence.join(' → ')}`);
     
-    // ===== STEP 2: Create session in clientSession =====
+    // Step 2: Create session in clientSession
     clientSession.secretSession = {
         // Window information
         startWindow: variant.windowId,
@@ -463,38 +376,33 @@ function handleSecret(sock, clientId) {
         ackTimeout: null
     };
     
-    console.log(`   ✅ Secret session created for client ${sock.remotePort}`);
-    console.log(`   📍 Current state: waiting for file #1 (${variant.fileSequence[0]})`);
+    console.log(`Secret session created for client ${sock.remotePort}`);
+    console.log(`Current state: waiting for file #1 (${variant.fileSequence[0]})`);
     
-    // ===== STEP 3: Send riddle to client =====
+    // Step 3: Send riddle to client
     sendRiddle(sock, variant.riddle);
 }
 
 function handleAck(sock, clientId) {
     const clientSession = clientSessions[clientId];
-    console.log(`\n✅ ACK request from client ${sock.remotePort}`);
+    console.log(`\n ACK request from client ${sock.remotePort}`);
     
     const session = clientSession.secretSession;
     
     // Check if session exists
     if (!session) {
-        console.log(`   ❌ No active session`);
         sendError(sock, "No active secret session");
         return;
     }
     
     // Check if we're actually waiting for an ACK
     if (!session.awaitingAck) {
-        console.log(`   ❌ Unexpected ACK (not waiting for one)`);
+        console.log(`Unexpected ACK (not waiting for one)`);
         sendError(sock, "Unexpected ACK");
         return;
     }
     
-    // In a real implementation, you'd decode the reserved field
-    // to verify which part is being acknowledged
-    // For now, assume it's correct
-    
-    console.log(`   ✅ ACK received for part ${session.lastKeyPartNum}`);
+    console.log(`ACK received for part ${session.lastKeyPartNum}`);
     
     // Clear timeout
     if (session.ackTimeout) {
@@ -507,21 +415,15 @@ function handleAck(sock, clientId) {
     session.keyPartsReceived++;
     session.nextFileIndex++;
     
-    console.log(`   📍 Progress: ${session.keyPartsReceived}/3 key parts received`);
+    console.log(`Progress: ${session.keyPartsReceived}/3 key parts received`);
     
     // Check if all key parts received
     if (session.keyPartsReceived >= 3) {
         session.complete = true;
-        console.log(`   🎉 All 3 key parts collected! Ready for COMPLETE request`);
+        console.log(`All 3 key parts collected! Ready for COMPLETE request`);
     } else {
-        console.log(`   👉 Next file: ${session.expectedFiles[session.nextFileIndex]}`);
+        console.log(`Next file: ${session.expectedFiles[session.nextFileIndex]}`);
     }
-    
-    // Optional: Send ACK confirmation
-    // let seqNum = singleton.getSequenceNumber();
-    // let confirmMsg = Buffer.from(`ACK received for part ${session.lastKeyPartNum}`);
-    // MTPpacket.init(1, seqNum, 0, 1, confirmMsg);
-    // sock.write(MTPpacket.getBytePacket());
 }
 
 function sendError(sock, message) {
@@ -533,39 +435,37 @@ function sendError(sock, message) {
     MTPpacket.init(2, seqNum, 0, 1, errorData);
     sock.write(MTPpacket.getBytePacket());
     
-    console.log(`   ⚠️ Error sent to client ${sock.remotePort}: "${message}"`);
+    console.log(`Error sent to client ${sock.remotePort}: "${message}"`);
 }
 
 function handleComplete(sock, clientId) {
     const clientSession = clientSessions[clientId];
-    console.log(`\n📦 COMPLETE request from client ${sock.remotePort}`);
+    console.log(`\n COMPLETE request from client ${sock.remotePort}`);
     
     const session = clientSession.secretSession;
     
     // Check if session exists
     if (!session) {
-        console.log(`   ❌ No active session`);
-        sendError(sock, "No active secret session");
+        sendError(sock, "Secret session cleared");
         return;
     }
     
     // Check if all key parts have been collected
     if (!session.complete) {
-        console.log(`   ❌ Session not complete (${session.keyPartsReceived}/3 parts)`);
+        console.log(`Session not complete (${session.keyPartsReceived}/3 parts)`);
         sendError(sock, `Secret session not complete. ${session.keyPartsReceived}/3 parts received.`);
         return;
     }
     
     // Check window validity
     if (!secretHandler.isWindowValid(session.startWindow)) {
-        console.log(`   ❌ Session expired - window changed`);
+        console.log(`Session expired - window changed`);
         sendError(sock, "Session expired - time window changed");
         clientSession.secretSession = null;
         return;
     }
     
-    console.log(`   ✅ All checks passed. Sending secret file...`);
-    console.log(`   📁 Secret file: ${session.variant.secretFile}`);
+    console.log(`Sending secret file: ${session.variant.secretFile}`);
     
     // Path to the secret file
     const secretPath = path.join(__dirname, 'images', session.variant.secretFile);
@@ -573,7 +473,7 @@ function handleComplete(sock, clientId) {
     // Read and send the secret file
     fs.readFile(secretPath, (err, data) => {
         if (err) {
-            console.log(`   ❌ Error reading secret file: ${err.message}`);
+            console.log(`Error reading secret file: ${err.message}`);
             sendNotFound(sock);
             return;
         }
@@ -585,8 +485,8 @@ function handleComplete(sock, clientId) {
         MTPpacket.init(1, seqNum, session.startWindow, 1, data);
         sock.write(MTPpacket.getBytePacket());
         
-        console.log(`   ✅ Secret file sent (${data.length} bytes)`);
-        console.log(`   🔒 Client must decrypt with reconstructed key`);
+        console.log(`Secret file sent (${data.length} bytes)`);
+        console.log(`Client must decrypt with reconstructed key`);
         
         // Session complete - clean up
         clientSession.secretSession = null;
@@ -595,7 +495,7 @@ function handleComplete(sock, clientId) {
 
 function handleReset(sock, clientId) {
     const clientSession = clientSessions[clientId];
-    console.log(`\n🔄 RESET request from client ${sock.remotePort}`);
+    console.log(`\n RESET request from client ${sock.remotePort}`);
     
     // Clear any existing session
     if (clientSession.secretSession) {
@@ -604,10 +504,10 @@ function handleReset(sock, clientId) {
             clearTimeout(clientSession.secretSession.ackTimeout);
         }
         
-        console.log(`   ✅ Session cleared`);
+        console.log(`Session cleared`);
         clientSession.secretSession = null;
     } else {
-        console.log(`   ℹ️ No active session to reset`);
+        console.log(`No active session to reset`);
     }
     
     // Send confirmation
@@ -616,7 +516,7 @@ function handleReset(sock, clientId) {
     MTPpacket.init(1, seqNum, 0, 1, confirmMsg);
     sock.write(MTPpacket.getBytePacket());
     
-    console.log(`   ✅ Reset confirmation sent`);
+    console.log(`Reset confirmation sent`);
 }
 
 // Helper function for sending riddles
@@ -627,7 +527,7 @@ function sendRiddle(sock, riddleText) {
     MTPpacket.init(1, seqNum, 0, 1, riddleData);
     sock.write(MTPpacket.getBytePacket());
     
-    console.log(`   📤 Riddle sent (${riddleData.length} bytes)`);
+    console.log(`Riddle sent (${riddleData.length} bytes)`);
 }
 
 function sendNotFound(sock) {
@@ -642,9 +542,6 @@ function sendNotFound(sock) {
     sock.write(packet);
     
     console.log(`Sent Not Found to client (sequence ${seqNum})`);
-    
-    // Optional: print packet for debugging
-    // MTPpacket.printPacket();
 }
 
 function sendFile(sock, filePath, filename) {
@@ -655,9 +552,6 @@ function sendFile(sock, filePath, filename) {
             sendNotFound(sock);
             return;
         }
-        
-        // Check if file is small enough for one packet
-        // For now, assume single packet (we'll add multi-packet later)
         
         // Get next sequence number from singleton
         let seqNum = singleton.getSequenceNumber();
